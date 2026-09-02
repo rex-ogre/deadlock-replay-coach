@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local AI assistant session state. This can contain session identifiers and
+# machine-specific checkpoints and must never be committed or packaged.
+.claude/
+
+# Replay inputs. A single .dem is ~580MB, over GitHub's 100MB file limit.
+*.dem
+
+# Generated reports and dumped frames: everything here is a pure function of
+# the demo plus CLI flags, so it is reproducible with one command.
+out/
+
+server-data/
+
+# Ad-hoc analysis runs: same class of artifact as out/ — reproducible from
+# the demo plus CLI flags.
+analysis/

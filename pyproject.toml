@@ -1,0 +1,46 @@
+[project]
+name = "deadlock-replay-coach"
+version = "0.1.0"
+description = "Turn Deadlock .dem replays into AI-readable coaching and tactical reports"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+    "boon-deadlock>=0.7.0",
+    "cramjam>=2.12.1",
+    "opencc-python-reimplemented>=0.1.7",
+    "polars>=1.43.2",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+]
+
+[project.scripts]
+deadlock-coach = "deadlock_coach.cli:main"
+deadlock-coach-server = "deadlock_coach.server:main"
+
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.141.1",
+    "python-multipart>=0.0.32",
+    "uvicorn[standard]>=0.52.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["deadlock_coach"]
+
+[tool.hatch.build]
+exclude = [
+    "/.claude",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

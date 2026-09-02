@@ -1,0 +1,2139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deadlock Replay Coach</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d0f15; --sidebar: #11141c; --panel: #171b25; --panel-2: #1d2230;
+    --line: #2b3242; --line-strong: #3d465b; --text: #f1f3f8; --dim: #a6adbf;
+    --muted: #777f94; --accent: #f0b23c; --accent-soft: #2a2417; --accent-line: #725721;
+    --ok: #58d397; --bad: #f07974; --busy: #6db8ff; --focus: #8bc7ff;
+    --sidebar-width: 288px; --content-width: 960px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; overflow: hidden; background: var(--bg); color: var(--text);
+    font: 15px/1.65 -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", "Segoe UI", sans-serif;
+  }
+  button, input, select, textarea { font: inherit; }
+  button, a, label[for="file"] { touch-action: manipulation; }
+  button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, [tabindex]:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--focus) 55%, transparent); outline-offset: 2px;
+  }
+  [hidden] { display: none !important; }
+  .skip-link {
+    position: fixed; z-index: 1000; left: 1rem; top: .75rem; transform: translateY(-160%);
+    background: var(--text); color: var(--bg); padding: .55rem .8rem; border-radius: 8px;
+  }
+  .skip-link:focus { transform: translateY(0); }
+
+  .app-shell { display: flex; height: 100dvh; min-height: 0; }
+  .sidebar {
+    width: var(--sidebar-width); flex: 0 0 var(--sidebar-width); min-height: 0;
+    display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--line);
+  }
+  .brand { padding: 1.35rem 1.25rem 1.1rem; border-bottom: 1px solid var(--line); }
+  .brand-mark { display: flex; align-items: center; gap: .7rem; font-size: .96rem; font-weight: 700; }
+  .brand-icon {
+    width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px;
+    background: var(--accent); color: #171107; box-shadow: 0 7px 20px rgba(240, 178, 60, .14);
+  }
+  .brand-icon svg, .button-icon svg { width: 18px; height: 18px; display: block; }
+  .brand p { margin: .45rem 0 0 2.7rem; color: var(--muted); font-size: .75rem; line-height: 1.4; }
+  .new-analysis {
+    width: calc(100% - 2rem); min-height: 44px; margin: 1rem; display: flex; align-items: center;
+    justify-content: center; gap: .5rem; border: 1px solid var(--accent-line); border-radius: 9px;
+    background: var(--accent-soft); color: var(--accent); font-weight: 650; cursor: pointer;
+    transition: background-color .18s, border-color .18s, color .18s;
+  }
+  .new-analysis:hover { background: #332918; border-color: var(--accent); color: #ffd275; }
+  .sidebar-section-head {
+    display: flex; align-items: center; justify-content: space-between; padding: .3rem 1rem .65rem;
+    color: var(--muted); font-size: .73rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase;
+  }
+  .count { font-variant-numeric: tabular-nums; }
+  .video-list { min-height: 0; overflow-y: auto; padding: 0 .65rem 1rem; }
+  .video-list::-webkit-scrollbar { width: 8px; }
+  .video-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+  .video-empty { color: var(--muted); font-size: .84rem; margin: .8rem .55rem; line-height: 1.55; }
+  .video-item {
+    width: 100%; min-height: 72px; display: block; text-align: left; margin: 0 0 .3rem; padding: .7rem .75rem;
+    color: var(--text); background: transparent; border: 1px solid transparent; border-radius: 9px;
+    cursor: pointer; transition: background-color .18s, border-color .18s;
+  }
+  .video-item:hover { background: var(--panel); }
+  .video-item.active { background: var(--panel-2); border-color: var(--line-strong); }
+  .video-item-top { display: flex; align-items: center; gap: .5rem; }
+  .video-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 620; }
+  .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--muted); }
+  .status-dot.parsing, .status-dot.coaching { background: var(--busy); animation: pulse 1.4s ease-in-out infinite; }
+  .status-dot.awaiting_player { background: var(--accent); }
+  .status-dot.done { background: var(--ok); }
+  .status-dot.failed { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .video-meta { margin: .25rem 0 0 .95rem; color: var(--muted); font-size: .75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .workspace { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  .topbar {
+    height: 73px; flex: 0 0 73px; display: flex; align-items: center; gap: .8rem;
+    padding: .75rem clamp(1rem, 3vw, 2.5rem); border-bottom: 1px solid var(--line); background: rgba(13, 15, 21, .92);
+  }
+  .topbar-copy { min-width: 0; }
+  .topbar h1 { margin: 0; font-size: 1rem; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar p { margin: .15rem 0 0; color: var(--muted); font-size: .76rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .topbar-spacer { flex: 1; }
+  .menu-button {
+    display: none; width: 44px; height: 44px; flex: 0 0 44px; place-items: center; padding: 0;
+    color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 9px; cursor: pointer;
+  }
+  .menu-button svg { width: 20px; height: 20px; }
+  .top-new { min-height: 40px; padding: .4rem .8rem; }
+  .language-picker { min-height: 40px; padding: .35rem .55rem; background: var(--panel-2); }
+  .main-content { flex: 1; min-height: 0; overflow-y: auto; scroll-behavior: smooth; }
+  .view { width: min(100%, var(--content-width)); margin: 0 auto; padding: clamp(1.25rem, 3vw, 2.5rem); }
+  .view-heading { margin-bottom: 1.25rem; }
+  .eyebrow { margin: 0 0 .3rem; color: var(--accent); font-size: .74rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+  .view-heading h2 { margin: 0; font-size: clamp(1.35rem, 3vw, 1.85rem); line-height: 1.3; }
+  .view-heading p { margin: .45rem 0 0; color: var(--dim); max-width: 58ch; }
+
+  .panel, .content-card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+  .panel { padding: clamp(1rem, 3vw, 1.35rem); }
+  #drop {
+    min-height: 154px; display: grid; place-items: center; padding: 1.5rem 1rem; text-align: center;
+    border: 1.5px dashed var(--line-strong); border-radius: 10px; cursor: pointer; background: var(--panel-2);
+    transition: border-color .18s, background-color .18s;
+  }
+  #drop:hover, #drop.over { border-color: var(--accent); background: #252a38; }
+  .drop-icon { width: 36px; height: 36px; margin: 0 auto .55rem; color: var(--accent); }
+  #drop strong { color: var(--accent); }
+  #drop .picked { color: var(--ok); word-break: break-all; }
+  .analysis-focus { display: grid; gap: .35rem; margin-top: 1rem; color: var(--text); font-weight: 650; }
+  .analysis-focus span { color: var(--muted); font-size: .78rem; font-weight: 400; }
+  .analysis-focus textarea { width: 100%; min-height: 84px; resize: vertical; padding: .65rem .75rem; }
+  .row { display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; margin-top: 1rem; }
+  label.opt { color: var(--dim); font-size: .88rem; display: flex; align-items: center; gap: .4rem; cursor: pointer; }
+  input[type=text], select, textarea {
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px;
+  }
+  input[type=text] { flex: 1 1 190px; min-width: 0; padding: .55rem .7rem; font-size: .9rem; }
+  select { min-height: 44px; padding: .45rem .55rem; font-size: .86rem; cursor: pointer; }
+  select:disabled { opacity: .5; cursor: default; }
+  button.primary {
+    min-height: 44px; background: var(--accent); color: #1a1406; border: 0; border-radius: 8px;
+    padding: .55rem 1.1rem; font-weight: 700; cursor: pointer;
+  }
+  button:disabled { opacity: .45; cursor: default; }
+  button.ghost {
+    min-height: 44px; background: transparent; color: var(--dim); border: 1px solid var(--line);
+    border-radius: 8px; padding: .4rem .75rem; font-weight: 500; cursor: pointer;
+  }
+  button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
+  #bar { height: 5px; background: var(--panel-2); border-radius: 3px; margin-top: 1rem; overflow: hidden; display: none; }
+  #bar div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  #msg { margin-top: .75rem; font-size: .88rem; color: var(--dim); min-height: 1.2em; }
+  #msg.err { color: var(--bad); }
+  .note { color: var(--dim); font-size: .82rem; flex: 1 1 190px; }
+
+  .detail-summary { display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+  .pill { font-size: .75rem; padding: .16rem .55rem; border-radius: 999px; border: 1px solid; font-weight: 650; }
+  .pill.queued { color: var(--dim); border-color: var(--line); }
+  .pill.parsing, .pill.coaching { color: var(--busy); border-color: #315982; }
+  .pill.awaiting_player { color: var(--accent); border-color: var(--accent-line); }
+  .pill.done { color: var(--ok); border-color: #2a6048; }
+  .pill.failed { color: var(--bad); border-color: #713432; }
+  .detail-meta { color: var(--muted); font-size: .82rem; }
+  .links { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0 0 1rem; }
+  .links a {
+    min-height: 44px; display: inline-flex; align-items: center; color: var(--dim); text-decoration: none;
+    font-size: .82rem; border: 1px solid var(--line); padding: .3rem .7rem; border-radius: 8px;
+  }
+  .links a:hover { color: var(--text); border-color: var(--line-strong); }
+  .links a.danger:hover { color: var(--bad); border-color: var(--bad); }
+  .err-box { color: var(--bad); background: #281b1c; border: 1px solid #713432; border-radius: 9px; padding: .7rem .85rem; font-size: .84rem; white-space: pre-wrap; word-break: break-word; margin-bottom: 1rem; }
+  .progress-card { padding: 1.2rem; margin-bottom: 1rem; display: flex; align-items: center; gap: .8rem; }
+  .spinner { width: 19px; height: 19px; flex: 0 0 19px; border: 2px solid var(--line-strong); border-top-color: var(--busy); border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-card strong { display: block; }
+  .logline { color: var(--muted); font-size: .8rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
+  .content-card { padding: clamp(1rem, 3vw, 1.35rem); margin-bottom: 1rem; }
+  .section-title { margin: 0 0 1rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 650; }
+  .empty { color: var(--dim); font-size: .88rem; }
+
+  /* Split review workspace --------------------------------------------- */
+  .main-content.review-mode { overflow: hidden; }
+  .main-content.review-mode #detail-view {
+    width: 100%; max-width: none; height: 100%; padding: .85rem clamp(.75rem, 1.5vw, 1.25rem);
+  }
+  .main-content.review-mode #detail { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+  .detail-toolbar {
+    flex: 0 0 auto; min-height: 46px; display: flex; align-items: center; gap: .75rem;
+    margin-bottom: .75rem; padding: .2rem .1rem; border-bottom: 1px solid var(--line);
+  }
+  .detail-toolbar .detail-summary, .detail-toolbar .links { margin: 0; }
+  .detail-toolbar .links { margin-left: auto; justify-content: flex-end; }
+  .detail-toolbar .links a { min-height: 36px; padding-block: .15rem; }
+  .review-workspace {
+    flex: 1 1 auto; min-height: 0; display: grid;
+    grid-template-columns: minmax(520px, 1.08fr) minmax(380px, .92fr); gap: 1rem;
+  }
+  .review-visual, .review-reading { min-width: 0; min-height: 0; overflow-y: auto; scrollbar-color: var(--line-strong) transparent; }
+  .review-visual { padding-right: .15rem; }
+  .review-reading { padding-right: .25rem; }
+  .review-visual .replay-card { margin: 0; }
+  .review-visual .viewer-grid { grid-template-columns: 1fr; }
+  .review-visual .map-stage { width: min(100%, 52dvh); margin-inline: auto; }
+  .review-visual .state-panel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: .9rem; }
+  .review-visual .state-section:last-child { grid-column: 1 / -1; }
+  .review-reading > :last-child { margin-bottom: 0; }
+  .review-tabs { display: none; }
+
+  .md h1, .md h2, .md h3, .md h4 { color: var(--text); text-transform: none; letter-spacing: 0; }
+  .md h1, .md h2 { font-size: 1.12rem; margin: 1.5rem 0 .6rem; }
+  .md h3 { font-size: 1rem; margin: 1.35rem 0 .5rem; }
+  .md h4 { font-size: .93rem; margin: 1.1rem 0 .4rem; color: var(--accent); }
+  .md p, .md li { font-size: .94rem; }
+  .md p { max-width: 75ch; }
+  .md ul, .md ol { padding-left: 1.3rem; }
+  .md li { margin: .25rem 0; }
+  .md code { background: var(--panel-2); padding: .1rem .35rem; border-radius: 4px; font-size: .85em; }
+  .md hr { border: 0; border-top: 1px solid var(--line); margin: 1.3rem 0; }
+  .md blockquote { margin: .8rem 0; padding-left: .9rem; border-left: 2px solid var(--line-strong); color: var(--dim); }
+  .md .tablewrap { overflow-x: auto; }
+  .md table { border-collapse: collapse; font-size: .86rem; margin: .8rem 0; }
+  .md th, .md td { border: 1px solid var(--line); padding: .35rem .65rem; text-align: left; white-space: nowrap; }
+  .md th { background: var(--panel-2); }
+  .time-link { padding: 0 .16rem; border: 0; border-bottom: 1px dashed currentColor; background: transparent; color: var(--accent); cursor: pointer; font: inherit; }
+  .time-link:hover { color: #ffd275; border-bottom-style: solid; }
+  .review-more { margin-top: 1.4rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+  .review-more > summary {
+    cursor: pointer; color: var(--accent); font-size: .85rem; font-weight: 600;
+    list-style: none; padding: .35rem 0;
+  }
+  .review-more > summary::before { content: '▸ '; }
+  .review-more[open] > summary::before { content: '▾ '; }
+  .review-more > summary::-webkit-details-marker { display: none; }
+
+  /* Computed scorecard -------------------------------------------------- */
+  .scorecard {
+    overflow: hidden; border-color: var(--line-strong);
+    background: linear-gradient(145deg, color-mix(in srgb, var(--accent-soft) 52%, var(--panel)), var(--panel) 42%);
+  }
+  .scorecard-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: .65rem;
+  }
+  .scorecard-head .section-title { margin: 0 0 .25rem; color: var(--accent); }
+  .scorecard-head h2 { margin: 0; font-size: clamp(1.15rem, 2vw, 1.42rem); line-height: 1.3; }
+  .rank-context {
+    flex: 0 0 auto; padding: .25rem .55rem; border: 1px solid var(--accent-line); border-radius: 999px;
+    color: var(--accent); background: var(--accent-soft); font-size: .72rem; font-weight: 650;
+  }
+  .scorecard-shape { margin: 0 0 1rem; color: var(--dim); font-size: .88rem; line-height: 1.55; }
+  .quick-grid { display: grid; grid-template-columns: minmax(190px, .75fr) minmax(260px, 1.25fr); gap: .7rem; }
+  .quick-metric {
+    min-width: 0; padding: .8rem .9rem; border: 1px solid var(--line); border-radius: 10px;
+    background: color-mix(in srgb, var(--panel-2) 86%, transparent);
+  }
+  .quick-metric-label { display: block; color: var(--muted); font-size: .72rem; font-weight: 650; }
+  .quick-metric-value {
+    display: block; margin: .12rem 0; font-size: clamp(1.65rem, 4vw, 2.2rem); line-height: 1.15;
+    font-weight: 720; font-variant-numeric: tabular-nums;
+  }
+  .quick-metric-value.gap-name { font-size: clamp(1.05rem, 2.3vw, 1.3rem); line-height: 1.3; }
+  .quick-metric-copy { display: block; color: var(--dim); font-size: .77rem; line-height: 1.5; }
+  .quick-metric-copy strong { color: var(--text); font-weight: 650; font-variant-numeric: tabular-nums; }
+  .quick-verdict { margin-top: .45rem; font-size: .8rem; line-height: 1.45; }
+  .quick-verdict.bad { color: var(--bad); }
+  .quick-verdict.good { color: var(--ok); }
+  .quick-verdict.ok, .quick-verdict.neutral { color: var(--dim); }
+  .priority-title { margin: 1.15rem 0 .55rem; font-size: .88rem; }
+  .priority-list { display: grid; gap: .55rem; margin: 0; padding: 0; list-style: none; }
+  .priority-item {
+    display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .7rem; padding: .72rem .8rem;
+    border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2);
+  }
+  .priority-index {
+    display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px;
+    background: var(--accent-soft); color: var(--accent); font-size: .78rem; font-weight: 750;
+  }
+  .priority-top { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-bottom: .15rem; }
+  .priority-kind { color: var(--muted); font-size: .69rem; font-weight: 700; letter-spacing: .04em; }
+  .priority-basis { color: var(--muted); font-size: .65rem; }
+  .priority-copy { color: var(--text); font-size: .88rem; line-height: 1.52; }
+  .window-list { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin-top: .4rem; }
+  .window-label { color: var(--muted); font-size: .68rem; }
+  .window-link, .window-text {
+    min-height: 44px; display: inline-flex; align-items: center; padding: .3rem .6rem;
+    border: 1px solid var(--accent-line); border-radius: 999px; color: var(--accent);
+    background: var(--accent-soft); font-size: .69rem; font-variant-numeric: tabular-nums;
+  }
+  .window-link { cursor: pointer; }
+  .window-link:hover { border-color: var(--accent); color: #ffd275; }
+  .score-details, .coach-details { margin-top: 1rem; border-top: 1px solid var(--line); }
+  .score-details > summary, .coach-details > summary {
+    min-height: 44px; display: flex; align-items: center; justify-content: space-between; gap: .75rem;
+    padding: .55rem .1rem; color: var(--dim); cursor: pointer; font-size: .82rem; font-weight: 650;
+    list-style: none;
+  }
+  .score-details > summary::-webkit-details-marker, .coach-details > summary::-webkit-details-marker { display: none; }
+  .score-details > summary::after, .coach-details > summary::after { content: 'Expand'; color: var(--accent); font-size: .72rem; }
+  .score-details[open] > summary::after, .coach-details[open] > summary::after { content: 'Collapse'; }
+  html[lang="zh-TW"] .score-details > summary::after,
+  html[lang="zh-TW"] .coach-details > summary::after { content: '展開'; }
+  html[lang="zh-TW"] .score-details[open] > summary::after,
+  html[lang="zh-TW"] .coach-details[open] > summary::after { content: '收合'; }
+  .score-details-body { padding-bottom: .2rem; }
+  .detail-finding-group { margin-top: 1rem; }
+  .detail-finding-group h3 { margin: 0 0 .4rem; color: var(--accent); font-size: .84rem; }
+  .detail-finding-group ul { margin: 0; padding-left: 1.15rem; }
+  .detail-finding-group li { margin: .35rem 0; color: var(--dim); font-size: .84rem; line-height: 1.5; }
+  .detail-finding-group .when { display: block; color: var(--muted); font-size: .7rem; }
+  .coach-disclosure { padding-block: .9rem; }
+  .coach-details { margin-top: 0; border-top: 0; }
+  .coach-details > summary { padding: .1rem 0 .75rem; color: var(--text); font-size: .92rem; }
+  .coach-details-copy { color: var(--muted); font-size: .72rem; font-weight: 400; }
+  .stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: .55rem; }
+  .stat { padding: .6rem .7rem; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+  .stat-label { display: block; color: var(--muted); font-size: .72rem; }
+  .stat-value { display: block; margin: .15rem 0; font-size: 1.4rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat-sub { color: var(--muted); font-size: .7rem; font-variant-numeric: tabular-nums; }
+  .stat-note { margin: .7rem 0 0; color: var(--muted); font-size: .74rem; line-height: 1.6; }
+  .scorecard .tablewrap { overflow-x: auto; margin-top: 1rem; }
+  table.bench { border-collapse: collapse; width: 100%; font-size: .84rem; }
+  table.bench th, table.bench td { border: 1px solid var(--line); padding: .38rem .6rem; text-align: left; white-space: nowrap; }
+  table.bench th { background: var(--panel-2); font-weight: 600; vertical-align: bottom; }
+  table.bench .num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.bench .th-sub { color: var(--muted); font-size: .68rem; font-weight: 400; }
+  .verdict { padding: .1rem .4rem; border-radius: 5px; font-size: .72rem; }
+  .verdict.bad { background: #33191a; color: var(--bad); }
+  .verdict.good { background: #14301f; color: var(--ok); }
+  .verdict.ok { background: #1b2534; color: var(--dim); }
+  .verdict.neutral { background: #20242f; color: var(--muted); }
+
+  /* Visual replay ------------------------------------------------------ */
+  .replay-card { padding: 0; overflow: visible; }
+  .replay-head {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    padding: 1rem 1.15rem; border-bottom: 1px solid var(--line);
+  }
+  .replay-head .section-title { margin: 0; color: var(--text); font-size: .88rem; }
+  .replay-head p { margin: 0; color: var(--muted); font-size: .78rem; }
+  .replay-head-controls { position: relative; display: flex; align-items: center; gap: .55rem; margin-left: auto; }
+  .replay-head select { min-width: 180px; }
+  .hero-filter { position: relative; }
+  .hero-filter > summary {
+    min-height: 44px; display: flex; align-items: center; gap: .45rem; padding: .35rem .65rem;
+    border: 1px solid var(--line); border-radius: 8px; color: var(--dim); background: var(--panel-2);
+    cursor: pointer; list-style: none; white-space: nowrap;
+  }
+  .hero-filter > summary::-webkit-details-marker { display: none; }
+  .hero-filter > summary::after { content: '▾'; color: var(--muted); font-size: .72rem; }
+  .hero-filter[open] > summary { color: var(--text); border-color: var(--accent-line); }
+  .hero-filter[open] > summary::after { content: '▴'; }
+  .hero-filter-icon { width: 17px; height: 17px; color: var(--accent); }
+  .hero-filter-count { color: var(--accent); font-size: .72rem; font-variant-numeric: tabular-nums; }
+  .hero-filter-panel {
+    position: absolute; z-index: 30; top: calc(100% + .45rem); right: 0; width: min(320px, calc(100vw - 2rem));
+    max-height: min(66dvh, 520px); overflow-y: auto; padding: .7rem; border: 1px solid var(--line-strong);
+    border-radius: 10px; background: var(--panel); box-shadow: 0 16px 42px rgba(0,0,0,.48);
+  }
+  .hero-filter-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: .65rem; }
+  .hero-filter-actions button {
+    min-height: 44px; border: 1px solid var(--line); border-radius: 8px; color: var(--dim);
+    background: var(--panel-2); cursor: pointer;
+  }
+  .hero-filter-actions button:hover { color: var(--text); border-color: var(--line-strong); }
+  .hero-filter-team { margin: .5rem .25rem .25rem; color: var(--muted); font-size: .7rem; font-weight: 700; letter-spacing: .06em; }
+  .hero-filter-option {
+    min-height: 48px; display: grid; grid-template-columns: 22px 32px minmax(0, 1fr); align-items: center;
+    gap: .55rem; padding: .35rem .45rem; border-radius: 8px; cursor: pointer;
+  }
+  .hero-filter-option:hover { background: var(--panel-2); }
+  .hero-filter-option input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+  .hero-filter-face {
+    width: 30px; height: 30px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line-strong);
+    border-radius: 50%; background: #172536; color: var(--text); font-size: .68rem; font-weight: 750;
+  }
+  .hero-filter-face.team-b { border-radius: 7px; }
+  .hero-filter-face img { width: 100%; height: 100%; object-fit: cover; }
+  .hero-filter-copy { min-width: 0; line-height: 1.25; }
+  .hero-filter-copy strong, .hero-filter-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero-filter-copy strong { color: var(--text); font-size: .8rem; }
+  .hero-filter-copy span { margin-top: .12rem; color: var(--muted); font-size: .68rem; }
+  .viewer-shell { padding: 1rem; }
+  .viewer-grid { display: grid; grid-template-columns: minmax(300px, 1.15fr) minmax(280px, .85fr); gap: 1rem; }
+  .map-panel, .state-panel { min-width: 0; }
+  .map-layer-controls { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; margin-bottom: .65rem; }
+  .map-layer-label { margin-right: .1rem; color: var(--muted); font-size: .72rem; }
+  .map-layer-toggle {
+    min-height: 44px; display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .65rem;
+    border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--panel-2);
+    cursor: pointer; transition: color .18s, border-color .18s, background-color .18s;
+  }
+  .map-layer-toggle:hover { color: var(--text); border-color: var(--line-strong); }
+  .map-layer-toggle[aria-pressed="true"] { color: var(--text); border-color: var(--accent-line); background: var(--accent-soft); }
+  .map-layer-toggle svg { width: 16px; height: 16px; flex: 0 0 auto; }
+  .map-layer-count { color: var(--muted); font-size: .68rem; font-variant-numeric: tabular-nums; }
+  .map-stage {
+    position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 11px;
+    border: 1px solid var(--line-strong); background: radial-gradient(circle, #20283a 0, #111621 68%, #090c12 100%);
+  }
+  .map-stage::after { content: ""; position: absolute; z-index: 8; inset: 0; pointer-events: none; box-shadow: inset 0 0 38px rgba(0,0,0,.46); }
+  .map-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  .map-empty { position: absolute; inset: 0; display: grid; place-items: center; padding: 2rem; text-align: center; color: var(--muted); font-size: .83rem; }
+  .map-zipline-layer, .map-landmark-layer { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .map-zipline-layer { z-index: 1; overflow: visible; }
+  .map-zipline-path { fill: none; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+  .map-landmark-layer { z-index: 2; }
+  .map-landmark {
+    position: absolute; width: 26px; height: 26px; display: grid; place-items: center;
+    margin: -13px 0 0 -13px; filter: drop-shadow(0 2px 3px rgba(0,0,0,.82));
+  }
+  .map-landmark svg { width: 20px; height: 20px; overflow: visible; }
+  .map-landmark.buff svg { width: 23px; height: 23px; }
+  .map-entity-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+  .map-entity {
+    position: absolute; width: 32px; height: 32px; margin: -16px 0 0 -16px;
+    display: grid; place-items: center; pointer-events: auto; outline: none;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,.85));
+  }
+  .map-entity svg { width: 22px; height: 22px; overflow: visible; transition: transform .18s ease-out; }
+  .map-entity:hover, .map-entity:focus-visible { z-index: 7; }
+  .map-entity:hover svg, .map-entity:focus-visible svg { transform: scale(1.18); }
+  .map-entity:focus-visible svg { filter: drop-shadow(0 0 5px var(--accent)); }
+  .map-filter-empty {
+    position: absolute; z-index: 4; left: 50%; bottom: 1rem; transform: translateX(-50%);
+    padding: .35rem .65rem; border: 1px solid var(--line-strong); border-radius: 999px;
+    color: var(--dim); background: rgba(13,15,21,.88); font-size: .72rem; white-space: nowrap;
+  }
+  .map-marker {
+    position: absolute; width: 44px; height: 44px; padding: 6px; margin: -22px 0 0 -22px;
+    border: 0; border-radius: 50%; background: transparent; cursor: pointer; z-index: 3;
+    transition: transform .18s ease-out, opacity .18s;
+  }
+  .map-marker:hover, .map-marker:focus-visible { z-index: 4; transform: scale(1.13); }
+  .map-marker:focus-visible .marker-face { outline: 3px solid #fff; outline-offset: 2px; }
+  .map-marker.dead { opacity: .48; filter: grayscale(.8); }
+  .marker-face {
+    display: grid; place-items: center; width: 32px; height: 32px; overflow: hidden; border: 2px solid #77c7ff;
+    border-radius: 50%; background: #172536; color: #eaf7ff; font-size: .68rem; font-weight: 800;
+    box-shadow: 0 2px 10px rgba(0,0,0,.7);
+  }
+  .map-marker.team-b .marker-face { border-color: #ff8d86; border-radius: 8px; }
+  .map-marker.focused .marker-face { outline: 3px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 18px rgba(240,178,60,.65); }
+  .marker-face img { width: 100%; height: 100%; object-fit: cover; }
+  .map-tooltip {
+    position: absolute; left: 50%; bottom: calc(100% + 7px); min-width: 154px; max-width: 220px;
+    padding: .48rem .58rem; border: 1px solid var(--line-strong); border-radius: 8px;
+    background: rgba(9,12,18,.96); color: var(--text); box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    font-size: .7rem; line-height: 1.45; text-align: left; white-space: nowrap; pointer-events: none;
+    opacity: 0; visibility: hidden; transform: translate(-50%, 6px); transition: opacity .16s ease-out, transform .16s ease-out;
+  }
+  .map-tooltip strong { display: block; color: var(--text); font-size: .75rem; }
+  .map-tooltip span { display: block; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .map-marker:hover .map-tooltip, .map-marker:focus-visible .map-tooltip,
+  .map-entity:hover .map-tooltip, .map-entity:focus-visible .map-tooltip {
+    opacity: 1; visibility: visible; transform: translate(-50%, 0);
+  }
+  .viewer-controls { margin-top: .75rem; display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: .65rem; }
+  .play-button {
+    width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border-radius: 9px;
+    border: 1px solid var(--line-strong); background: var(--panel-2); color: var(--text); cursor: pointer;
+  }
+  .play-button svg { width: 18px; height: 18px; }
+  .time-control { min-width: 0; }
+  .time-control input { width: 100%; accent-color: var(--accent); cursor: pointer; }
+  .time-label { min-width: 58px; text-align: right; font: 600 .9rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .time-hint { margin: .35rem 0 0 44px; color: var(--muted); font-size: .73rem; }
+  .state-panel { display: flex; flex-direction: column; gap: .75rem; }
+  .hero-snapshot { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, auto); gap: .8rem; align-items: center; }
+  .hero-snapshot-copy { min-width: 0; }
+  .hero-snapshot-copy strong, .hero-snapshot-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero-snapshot-copy span { color: var(--muted); font-size: .72rem; }
+  .hero-snapshot-stat { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+  .hero-snapshot-stat strong { display: block; font-size: .82rem; }
+  .hero-snapshot-stat span { color: var(--muted); font-size: .65rem; text-transform: uppercase; letter-spacing: .04em; }
+  .state-section { border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); padding: .8rem; }
+  .state-title { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; margin-bottom: .65rem; }
+  .state-title h3 { margin: 0; font-size: .82rem; text-transform: uppercase; letter-spacing: .06em; }
+  .state-title span { color: var(--muted); font-size: .72rem; }
+  .asset-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: .5rem; }
+  .asset-button {
+    min-width: 0; min-height: 82px; padding: .4rem .25rem; display: flex; flex-direction: column; align-items: center; gap: .3rem;
+    border: 1px solid transparent; border-radius: 8px; background: #141925; color: var(--dim); cursor: pointer;
+  }
+  .asset-button:hover, .asset-button[aria-pressed="true"] { color: var(--text); border-color: var(--accent-line); background: var(--accent-soft); }
+  .asset-icon { width: 44px; height: 44px; display: grid; place-items: center; overflow: hidden; border-radius: 7px; border: 1px solid var(--line-strong); background: #0c1018; }
+  .asset-icon img { width: 100%; height: 100%; object-fit: contain; }
+  .asset-icon-fallback { font-weight: 800; color: var(--accent); }
+  .asset-name { width: 100%; font-size: .68rem; line-height: 1.25; text-align: center; overflow-wrap: anywhere; }
+  .skill-meta { color: var(--busy); font-size: .65rem; line-height: 1; }
+  .skill-used .asset-icon { box-shadow: 0 0 0 2px var(--accent), 0 0 14px rgba(240,178,60,.55); }
+  .asset-detail { min-height: 92px; margin-top: .65rem; padding-top: .65rem; border-top: 1px solid var(--line); }
+  .asset-detail h4 { margin: 0 0 .25rem; font-size: .9rem; }
+  .asset-detail p { margin: .25rem 0; color: var(--dim); font-size: .78rem; line-height: 1.5; white-space: pre-line; }
+  .bonus-list { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .45rem; }
+  .bonus { padding: .18rem .4rem; border-radius: 5px; background: #111722; color: var(--dim); font-size: .68rem; }
+  .viewer-events { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: .8rem; }
+  .event-strip { display: flex; gap: .5rem; overflow-x: auto; padding: .15rem 0 .35rem; scrollbar-color: var(--line-strong) transparent; }
+  .event-jump { flex: 0 0 min(270px, 76vw); min-height: 52px; text-align: left; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); color: var(--dim); padding: .45rem .6rem; cursor: pointer; }
+  .event-jump:hover, .event-jump.current { border-color: var(--accent-line); color: var(--text); }
+  .event-time { display: block; color: var(--accent); font: 600 .72rem/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .event-text { display: block; font-size: .72rem; line-height: 1.35; margin-top: .18rem; }
+  .viewer-skeleton { min-height: 360px; display: grid; place-items: center; color: var(--dim); }
+  .viewer-error { min-height: 180px; display: grid; place-items: center; color: var(--bad); text-align: center; padding: 1rem; }
+
+  .chat { margin-top: 1rem; }
+  .turn { margin-bottom: 1rem; }
+  .turn.user .bubble {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: .55rem .8rem; margin-left: auto; max-width: min(85%, 660px); width: fit-content;
+    font-size: .9rem; white-space: pre-wrap; word-break: break-word;
+  }
+  .turn.assistant .bubble { padding-left: .9rem; border-left: 2px solid var(--accent); }
+  .turn.assistant .bubble > :first-child { margin-top: 0; }
+  .turn .who { font-size: .72rem; color: var(--muted); margin-bottom: .3rem; }
+  .turn.user .who { text-align: right; }
+  .turn.pending .bubble { color: var(--dim); font-size: .9rem; }
+  .ask { display: flex; gap: .55rem; align-items: stretch; margin-top: 1.2rem; }
+  .ask-side { display: flex; flex-direction: column; gap: .45rem; }
+  .ask-side button { flex: 1; }
+  .ask textarea { flex: 1; padding: .65rem .75rem; font-size: .9rem; resize: vertical; min-height: 88px; max-height: 220px; }
+  .hint { color: var(--muted); font-size: .76rem; margin: .5rem 0 0; }
+
+  .pick { border: 1px solid var(--accent-line); background: var(--accent-soft); border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+  .pick h2 { margin: 0 0 .2rem; font-size: 1rem; color: var(--accent); }
+  .pick p { margin: 0 0 .9rem; color: var(--dim); font-size: .84rem; }
+  .teams { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+  .team h3 { margin: 0 0 .5rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .07em; color: var(--dim); }
+  .hero {
+    display: flex; gap: .55rem; align-items: baseline; width: 100%; min-height: 44px; text-align: left;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 8px;
+    padding: .5rem .7rem; margin-bottom: .4rem; font-size: .86rem; cursor: pointer;
+  }
+  .hero:hover:not(:disabled) { border-color: var(--accent); background: #302919; }
+  .hero b { font-weight: 650; }
+  .hero .pname { color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hero .kda { margin-left: auto; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .pick .skip { min-height: 44px; background: none; border: 0; color: var(--dim); text-decoration: underline; font-size: .82rem; padding: .6rem 0 0; cursor: pointer; }
+  .pick .skip:hover:not(:disabled) { color: var(--text); }
+  .scrim { display: none; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+  }
+  @media (max-width: 1240px) {
+    .main-content.review-mode { overflow-y: auto; }
+    .main-content.review-mode #detail-view { height: auto; min-height: 100%; }
+    .main-content.review-mode #detail { height: auto; min-height: 100%; display: block; }
+    .detail-toolbar { flex-wrap: wrap; }
+    .detail-toolbar .links { width: 100%; margin-left: 0; justify-content: flex-start; overflow-x: auto; flex-wrap: nowrap; }
+    .detail-toolbar .links a { flex: 0 0 auto; }
+    .review-tabs {
+      position: sticky; z-index: 12; top: 0; display: grid; grid-template-columns: 1fr 1fr;
+      gap: .4rem; margin: 0 0 .75rem; padding: .4rem; border: 1px solid var(--line);
+      border-radius: 10px; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(12px);
+    }
+    .review-tab {
+      min-height: 44px; border: 1px solid transparent; border-radius: 7px; background: transparent;
+      color: var(--dim); cursor: pointer;
+    }
+    .review-tab[aria-selected="true"] { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); font-weight: 650; }
+    .review-workspace { display: block; }
+    .review-visual, .review-reading { overflow: visible; padding: 0; }
+    .review-workspace[data-mobile-pane="visual"] .review-reading,
+    .review-workspace[data-mobile-pane="reading"] .review-visual { display: none; }
+    .review-visual .map-stage { width: min(100%, 620px); }
+  }
+  @media (max-width: 860px) {
+    .sidebar {
+      position: fixed; z-index: 50; inset: 0 auto 0 0; transform: translateX(-102%);
+      box-shadow: 18px 0 50px rgba(0, 0, 0, .35); transition: transform .22s ease-out;
+    }
+    body.sidebar-open .sidebar { transform: translateX(0); }
+    .scrim { position: fixed; z-index: 40; inset: 0; display: block; border: 0; background: rgba(0, 0, 0, .56); opacity: 0; pointer-events: none; transition: opacity .18s; }
+    body.sidebar-open .scrim { opacity: 1; pointer-events: auto; }
+    .menu-button { display: grid; }
+    .topbar { padding-inline: 1rem; }
+    .top-new { display: none; }
+    .viewer-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    .view { padding: 1rem; }
+    .scorecard-head { display: block; }
+    .rank-context { display: inline-flex; margin-top: .55rem; }
+    .quick-grid { grid-template-columns: 1fr; }
+    .priority-item { gap: .55rem; padding: .68rem; }
+    .row { align-items: stretch; }
+    .row .note { flex-basis: 100%; }
+    .row label.opt { min-height: 44px; }
+    .row .primary { width: 100%; }
+    .ask { flex-direction: column; }
+    .ask-side { flex-direction: row; }
+    .ask-side select, .ask-side button { flex: 1; }
+    .turn.user .bubble { max-width: 92%; }
+    .links a { flex: 1 1 calc(50% - .5rem); justify-content: center; text-align: center; }
+    .replay-head-controls { width: 100%; margin-left: 0; align-items: stretch; }
+    .replay-head select { flex: 1 1 auto; min-width: 0; width: auto; }
+    .hero-filter { flex: 0 0 auto; }
+    .hero-filter-panel { position: fixed; z-index: 100; top: 5.25rem; right: 1rem; left: 1rem; width: auto; }
+    .viewer-shell { padding: .75rem; }
+    .review-visual .state-panel { grid-template-columns: 1fr; }
+    .review-visual .state-section:last-child { grid-column: auto; }
+    .asset-list { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .asset-button { min-height: 78px; }
+  }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main-content" data-i18n="skip">Skip to main content</a>
+<div class="app-shell">
+  <aside class="sidebar" id="sidebar" aria-label="Replay navigation" data-i18n-aria="replayNav">
+    <div class="brand">
+      <div class="brand-mark">
+        <span class="brand-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 4.75h12a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z"/><path d="m10 9 5 3-5 3V9Z"/></svg>
+        </span>
+        <span>Replay Coach</span>
+      </div>
+      <p data-i18n="brandSub">Deadlock replay analysis</p>
+    </div>
+    <button class="new-analysis" type="button" onclick="showUpload()">
+      <span class="button-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+      </span>
+      <span data-i18n="newReplay">Analyze new replay</span>
+    </button>
+    <div class="sidebar-section-head"><span data-i18n="history">Replay history</span><span class="count" id="job-count">0</span></div>
+    <nav class="video-list" id="jobs" aria-label="Analyzed replays" data-i18n-aria="analyzedReplays">
+      <p class="video-empty" data-i18n="emptyHistory">No replays yet. Finished analyses stay here for quick access.</p>
+    </nav>
+  </aside>
+
+  <button class="scrim" id="scrim" type="button" aria-label="Close replay sidebar" data-i18n-aria="closeSidebar"></button>
+
+  <section class="workspace">
+    <header class="topbar">
+      <button class="menu-button" id="menu-button" type="button" aria-label="Open replay sidebar" data-i18n-aria="openSidebar" aria-controls="sidebar" aria-expanded="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+      </button>
+      <div class="topbar-copy">
+        <h1 id="active-title">Analyze new replay</h1>
+        <p id="active-context">Upload a .dem for a personal review and chat</p>
+      </div>
+      <div class="topbar-spacer"></div>
+      <select class="language-picker" id="language" aria-label="Display and report language" title="New reports use this language" data-i18n-aria="languageLabel" data-i18n-title="languageTitle">
+        <option value="en">English</option>
+        <option value="zh-TW">繁體中文</option>
+      </select>
+      <button class="ghost top-new" id="top-new" type="button" onclick="showUpload()" data-i18n="newReplay">Analyze new replay</button>
+    </header>
+
+    <main class="main-content" id="main-content" tabindex="-1">
+      <section class="view" id="upload-view">
+        <div class="view-heading">
+          <p class="eyebrow">New replay</p>
+          <h2 data-i18n="uploadTitle">Start a new replay analysis</h2>
+          <p data-i18n-html="uploadIntro">Upload a Deadlock <code>.dem</code>. After decoding, choose your hero and the coach will write the report in English.</p>
+        </div>
+        <div class="panel">
+          <label id="drop" for="file" tabindex="0">
+            <input type="file" id="file" accept=".dem" hidden>
+            <span id="droptext">
+              <svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>
+              Drop a <strong>.dem</strong> here, or click to choose a file
+            </span>
+          </label>
+          <label class="analysis-focus" for="analysis-request"><span class="label-copy" data-i18n="focusLabel">What should the coach focus on?</span>
+            <span data-i18n="focusHelp">Mention a fight, positioning, build, ability use, or timestamp. Leave blank for a full review.</span>
+            <textarea id="analysis-request" rows="3" maxlength="2000" placeholder="Example: Focus on my positioning and show where I was, what I owned, and which abilities were ready at key moments." data-i18n-placeholder="focusPlaceholder"></textarea>
+          </label>
+          <div class="row">
+            <span class="note" data-i18n="rosterNote">After decoding, choose yourself from the match roster.</span>
+            <label class="opt"><span data-i18n="engine">Engine</span> <select id="backend"></select></label>
+            <label class="opt"><input type="checkbox" id="coach" checked> <span data-i18n="generateReview">Generate coaching report</span></label>
+            <label class="opt"><input type="checkbox" id="keep"> <span data-i18n="keepDemo">Keep .dem</span></label>
+            <button class="primary" id="go" disabled data-i18n="uploadAnalyze">Upload and analyze</button>
+          </div>
+          <div id="bar" role="progressbar" aria-label="Upload progress" data-i18n-aria="uploadProgress" aria-valuemin="0" aria-valuemax="100"><div></div></div>
+          <div id="msg" role="status" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="view" id="detail-view" hidden>
+        <div id="detail"></div>
+      </section>
+    </main>
+  </section>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const drop = $('#drop'), fileInput = $('#file'), go = $('#go'), msg = $('#msg'), bar = $('#bar');
+const analysisRequest = $('#analysis-request');
+const mainContent = $('#main-content'), uploadView = $('#upload-view'), detailView = $('#detail-view');
+const coaching = {};   // job id -> {lead, detail} HTML, so polling never re-fetches it
+const summaries = {};  // job id -> the picked hero's computed scorecard
+const chats = {};      // job id -> turns, so a redraw never loses the conversation
+const viewers = {};    // immutable visual replay payloads
+const viewerState = {}; // job id -> selected tick/hero/detail/playback
+const drafts = {};     // half-typed questions, kept across redraws
+const engines = {};    // job id -> engine the next question goes to
+const reviewPanes = {}; // compact layouts remember whether map or review is open
+const scrollPositions = {};
+const asking = new Set();
+let picked = null, jobs = [], activeJobId = null, initialized = false, lastPayload = '';
+let locale = (() => {
+  try { return localStorage.getItem('deadlock-coach-language') === 'zh-TW' ? 'zh-TW' : 'en'; }
+  catch { return 'en'; }
+})();
+
+const COPY = {
+  en: {
+    skip: 'Skip to main content', replayNav: 'Replay navigation', brandSub: 'Deadlock replay analysis',
+    newReplay: 'Analyze new replay', history: 'Replay history', analyzedReplays: 'Analyzed replays',
+    emptyHistory: 'No replays yet. Finished analyses stay here for quick access.',
+    closeSidebar: 'Close replay sidebar', openSidebar: 'Open replay sidebar', uploadTitle: 'Start a new replay analysis',
+    uploadIntro: 'Upload a Deadlock <code>.dem</code>. After decoding, choose your hero and the coach will write the report in English.',
+    focusLabel: 'What should the coach focus on?',
+    focusHelp: 'Mention a fight, positioning, build, ability use, or timestamp. Leave blank for a full review.',
+    focusPlaceholder: 'Example: Focus on my positioning and show where I was, what I owned, and which abilities were ready at key moments.',
+    rosterNote: 'After decoding, choose yourself from the match roster.', engine: 'Engine',
+    generateReview: 'Generate coaching report', keepDemo: 'Keep .dem', uploadAnalyze: 'Upload and analyze',
+    uploadProgress: 'Upload progress', drop: 'Drop a <strong>.dem</strong> here, or click to choose a file',
+    newContext: 'Upload a .dem for a personal review and chat', notInstalled: ' (not installed)',
+    badFile: 'That is not a .dem file.', uploadDone: 'Upload complete; added to the queue…',
+    uploadFailed: 'Upload failed: ', disconnected: 'Connection lost.', preparing: 'Preparing the analysis…',
+    languageLabel: 'Display and report language', languageTitle: 'New reports use this language',
+  },
+  'zh-TW': {
+    skip: '跳到主要內容', replayNav: '影片導覽', brandSub: 'Deadlock 影片複盤',
+    newReplay: '解析新影片', history: '影片紀錄', analyzedReplays: '已解析影片',
+    emptyHistory: '還沒有影片。解析完成後，會保留在這裡方便切換。',
+    closeSidebar: '關閉影片側邊欄', openSidebar: '開啟影片側邊欄', uploadTitle: '開始一場新的影片分析',
+    uploadIntro: '上傳 Deadlock 的 <code>.dem</code>。解析後選擇你的角色，教練就會產生繁體中文複盤。',
+    focusLabel: '這次最想分析什麼？', focusHelp: '可以指定團戰、站位、出裝、技能使用或某個時間點；不填則做完整複盤。',
+    focusPlaceholder: '例如：請著重分析我的站位，並告訴我關鍵時刻人在地圖哪裡、帶了什麼裝備和技能。',
+    rosterNote: '解碼完會列出雙方名單，再讓你選自己是哪一隻。', engine: '引擎',
+    generateReview: '產生中文複盤', keepDemo: '保留 .dem', uploadAnalyze: '上傳並分析',
+    uploadProgress: '上傳進度', drop: '把 <strong>.dem</strong> 拖進來，或點一下選檔案',
+    newContext: '上傳 .dem，產生專屬複盤與對話', notInstalled: '（未安裝）',
+    badFile: '那不是 .dem 檔案。', uploadDone: '上傳完成，排進佇列…',
+    uploadFailed: '上傳失敗：', disconnected: '連線中斷。', preparing: '正在準備分析…',
+    languageLabel: '介面與複盤語言', languageTitle: '新產生的複盤會使用這個語言',
+  },
+};
+const t = key => COPY[locale]?.[key] ?? COPY.en[key] ?? key;
+const isZh = () => locale === 'zh-TW';
+const numberLocale = () => isZh() ? 'zh-TW' : 'en-US';
+
+function applyLocale() {
+  document.documentElement.lang = locale;
+  $('#language').value = locale;
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => { el.innerHTML = t(el.dataset.i18nHtml); });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
+  document.querySelectorAll('[data-i18n-aria]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAria)); });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle); });
+  if (!picked) $('#droptext').innerHTML = dropPrompt();
+  $('#backend').innerHTML = engineOptions($('#backend').value || DEFAULT_ENGINE);
+  lastPayload = '';
+}
+
+$('#language').onchange = event => {
+  locale = event.target.value === 'zh-TW' ? 'zh-TW' : 'en';
+  try { localStorage.setItem('deadlock-coach-language', locale); } catch {}
+  applyLocale();
+  renderSidebar();
+  renderWorkspace();
+};
+
+function dropPrompt() {
+  return '<svg class="drop-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg>' + t('drop');
+}
+
+// Replaced by /api/config; these defaults only matter if that call fails, and
+// an engine that turns out to be missing reports itself on the job.
+let ENGINES = [{ name: 'claude', label: 'Claude', available: true },
+               { name: 'codex', label: 'Codex', available: true }];
+let DEFAULT_ENGINE = 'claude';
+
+async function loadConfig() {
+  let cfg;
+  try { cfg = await (await fetch('/api/config')).json(); } catch { return; }
+  if (cfg.backends?.length) ENGINES = cfg.backends;
+  if (cfg.default_backend) DEFAULT_ENGINE = cfg.default_backend;
+  $('#backend').innerHTML = engineOptions(DEFAULT_ENGINE);
+  if (!cfg.coach_enabled) {
+    $('#coach').checked = false;
+    $('#coach').disabled = true;
+    $('#backend').disabled = true;
+  }
+  lastPayload = '';
+}
+
+function engineOptions(selected) {
+  return ENGINES.map(b => {
+    const off = b.available === false;
+    const attrs = [b.name === selected ? 'selected' : '', off && b.name !== selected ? 'disabled' : ''];
+    return `<option value="${b.name}" ${attrs.join(' ')}>${escapeHtml(b.label)}${off ? t('notInstalled') : ''}</option>`;
+  }).join('');
+}
+
+function engineLabel(name) { return ENGINES.find(b => b.name === name)?.label || name || ''; }
+function engineOf(job) { return engines[job.id] ?? job.backend ?? DEFAULT_ENGINE; }
+function setEngine(id, name) { engines[id] = name; }
+
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = e => {
+  e.preventDefault(); drop.classList.remove('over');
+  if (e.dataTransfer.files.length) setFile(e.dataTransfer.files[0]);
+};
+drop.onkeydown = e => {
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+};
+fileInput.onchange = () => fileInput.files.length && setFile(fileInput.files[0]);
+
+function setFile(f) {
+  if (!f.name.toLowerCase().endsWith('.dem')) return say(t('badFile'), true);
+  picked = f;
+  $('#droptext').innerHTML = `<span class="picked">${escapeHtml(f.name)}</span> · ${(f.size / 1e6).toFixed(0)} MB`;
+  go.disabled = false;
+  say('');
+}
+function say(text, isErr) { msg.textContent = text; msg.className = isErr ? 'err' : ''; }
+
+go.onclick = () => {
+  if (!picked) return;
+  const form = new FormData();
+  form.append('demo', picked);
+  form.append('coach', $('#coach').checked);
+  form.append('keep_demo', $('#keep').checked);
+  form.append('backend', $('#backend').value || DEFAULT_ENGINE);
+  form.append('language', locale);
+  form.append('analysis_request', analysisRequest.value.trim());
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload');
+  go.disabled = true;
+  bar.style.display = 'block';
+  xhr.upload.onprogress = e => {
+    if (!e.lengthComputable) return;
+    const pct = e.loaded / e.total * 100;
+    bar.firstElementChild.style.width = pct + '%';
+    bar.setAttribute('aria-valuenow', pct.toFixed(0));
+    say(pct < 100 ? (isZh() ? `上傳中 ${pct.toFixed(0)}%` : `Uploading ${pct.toFixed(0)}%`) : t('uploadDone'));
+  };
+  xhr.onload = () => {
+    bar.style.display = 'none';
+    bar.firstElementChild.style.width = '0';
+    bar.removeAttribute('aria-valuenow');
+    if (xhr.status === 200) {
+      let uploaded = {};
+      try { uploaded = JSON.parse(xhr.responseText); } catch {}
+      picked = null;
+      fileInput.value = '';
+      analysisRequest.value = '';
+      $('#droptext').innerHTML = dropPrompt();
+      if (uploaded.id) activeJobId = uploaded.id;
+      initialized = true;
+      refresh(true);
+    } else {
+      go.disabled = false;
+      let detail = xhr.responseText;
+      try { detail = JSON.parse(xhr.responseText).detail; } catch {}
+      say(t('uploadFailed') + detail, true);
+    }
+  };
+  xhr.onerror = () => { bar.style.display = 'none'; go.disabled = false; say(t('disconnected'), true); };
+  xhr.send(form);
+};
+
+const STATUS_TEXT = {
+  en: { queued: 'Queued', parsing: 'Decoding', awaiting_player: 'Choose hero', coaching: 'Writing review', done: 'Done', failed: 'Failed' },
+  'zh-TW': { queued: '排隊中', parsing: '解碼中', awaiting_player: '選角色', coaching: '複盤中', done: '完成', failed: '失敗' },
+};
+const statusText = status => STATUS_TEXT[locale]?.[status] || status;
+
+async function refresh(force) {
+  let data;
+  try { data = await (await fetch('/api/jobs')).json(); } catch { return; }
+
+  jobs = data.jobs || [];
+  if (!initialized) {
+    activeJobId = jobs[0]?.id || null;
+    initialized = true;
+  } else if (activeJobId && !jobs.some(j => j.id === activeJobId)) {
+    activeJobId = jobs[0]?.id || null;
+  }
+
+  const payload = JSON.stringify(jobs);
+  if (payload === lastPayload && !force) return;
+  lastPayload = payload;
+  renderSidebar();
+
+  // A pending request owns the active conversation DOM until it returns.
+  // The sidebar can still update, but the textarea and pending bubble stay put.
+  if (!force && asking.has(activeJobId)) return;
+  renderWorkspace();
+}
+
+function renderSidebar() {
+  $('#job-count').textContent = jobs.length;
+  $('#jobs').innerHTML = jobs.length ? jobs.map(j => {
+    const active = j.id === activeJobId;
+    const perspective = j.player ? ` · ${j.player}` : '';
+    return `<button type="button" class="video-item ${active ? 'active' : ''}"
+      onclick="selectJob('${j.id}')" ${active ? 'aria-current="page"' : ''} title="${escapeHtml(j.original_name)}">
+      <span class="video-item-top"><span class="status-dot ${j.status}" aria-hidden="true"></span>
+        <span class="video-name">${escapeHtml(j.original_name)}</span></span>
+      <span class="video-meta">${escapeHtml(statusText(j.status))}${escapeHtml(perspective)} · ${formatDate(j.created)}</span>
+    </button>`;
+  }).join('') : `<p class="video-empty">${escapeHtml(t('emptyHistory'))}</p>`;
+}
+
+function rememberScroll() {
+  const key = activeJobId || 'upload';
+  scrollPositions[key] = mainContent.scrollTop;
+}
+
+function restoreScroll() {
+  const key = activeJobId || 'upload';
+  requestAnimationFrame(() => { mainContent.scrollTop = scrollPositions[key] || 0; });
+}
+
+function selectJob(id) {
+  if (id === activeJobId) { closeSidebar(); return; }
+  stopViewerPlayback(activeJobId);
+  rememberScroll();
+  activeJobId = id;
+  renderSidebar();
+  renderWorkspace();
+  restoreScroll();
+  closeSidebar();
+  mainContent.focus({ preventScroll: true });
+}
+
+function showUpload() {
+  stopViewerPlayback(activeJobId);
+  if (activeJobId !== null) rememberScroll();
+  activeJobId = null;
+  initialized = true;
+  renderSidebar();
+  renderWorkspace();
+  restoreScroll();
+  closeSidebar();
+  mainContent.focus({ preventScroll: true });
+}
+
+function renderWorkspace() {
+  const job = jobs.find(j => j.id === activeJobId);
+  const isUpload = !job;
+  const splitReview = Boolean(job?.files?.viewer && job?.files?.report);
+  mainContent.classList.toggle('review-mode', splitReview);
+  uploadView.hidden = !isUpload;
+  detailView.hidden = isUpload;
+  $('#top-new').hidden = isUpload;
+
+  if (isUpload) {
+    $('#active-title').textContent = t('newReplay');
+    $('#active-context').textContent = t('newContext');
+    return;
+  }
+
+  $('#active-title').textContent = job.original_name;
+  $('#active-context').textContent = `${statusText(job.status)}${job.player ? ' · ' + job.player + (isZh() ? ' 視角' : ' perspective') : ''}`;
+  $('#detail').innerHTML = renderDetail(job);
+  if (job.files.viewer) {
+    if (viewers[job.id]) {
+      syncViewerPerspective(job);
+      drawViewer(job.id);
+    } else loadViewer(job.id);
+  }
+  if (job.files.coaching && !(job.id in coaching)) loadCoaching(job.id);
+  if (job.files.summary && job.player && summaries[job.id]?.hero !== job.player) loadSummary(job.id);
+  if (job.files.report && !(job.id in chats)) loadChat(job.id);
+}
+
+function renderDetail(j) {
+  const busy = j.status === 'parsing' || j.status === 'coaching' || j.status === 'queued';
+  const timing = [
+    j.parse_seconds != null ? `${isZh() ? '解碼' : 'Decoded in'} ${j.parse_seconds.toFixed(0)}s` : null,
+    j.coach_seconds != null ? `${isZh() ? '複盤' : 'Reviewed in'} ${j.coach_seconds.toFixed(0)}s` : null,
+  ].filter(Boolean).join(' · ');
+  const meta = [engineLabel(j.backend), formatDate(j.created), timing].filter(Boolean).join(' · ');
+  const links = [];
+  if (j.files.coaching) links.push(`<a href="/api/jobs/${j.id}/file/coaching" download>${isZh() ? '下載複盤' : 'Download review'} .md</a>`);
+  if (j.files.report) links.push(`<a href="/api/jobs/${j.id}/file/report" download>${isZh() ? '下載完整報告' : 'Download full report'} .md</a>`);
+  if (j.files.json) links.push(`<a href="/api/jobs/${j.id}/file/json" download>${isZh() ? '下載' : 'Download'} match.json</a>`);
+  if (j.files.viewer) links.push(`<a href="/api/jobs/${j.id}/file/viewer" download>${isZh() ? '下載互動資料' : 'Download viewer data'}</a>`);
+  links.push(`<a class="danger" href="#" onclick="del('${j.id}');return false">${isZh() ? '刪除影片' : 'Delete replay'}</a>`);
+
+  let coachingBlock = '';
+  if (j.files.coaching) {
+    if (j.files.summary) {
+      coachingBlock = `<section class="content-card coach-disclosure" aria-labelledby="review-title-${j.id}">
+        <details class="coach-details">
+          <summary id="review-title-${j.id}"><span>${isZh() ? '查看教練解讀' : 'Open full coaching analysis'}<br>
+            <span class="coach-details-copy">${isZh() ? '關鍵團戰、個人操作與完整推理' : 'Key fights, mechanics, and full reasoning'}</span></span></summary>
+          <div class="md" id="md-${j.id}">${reviewHtml(coaching[j.id])}</div>
+        </details>
+      </section>`;
+    } else {
+      coachingBlock = `<section class="content-card" aria-labelledby="review-title-${j.id}">
+        <h2 class="section-title" id="review-title-${j.id}">${isZh() ? '教練複盤' : 'Coaching review'}</h2>
+        <div class="md" id="md-${j.id}">${reviewHtml(coaching[j.id])}</div>
+      </section>`;
+    }
+  } else if (j.status === 'done' && j.files.report) {
+    coachingBlock = `<section class="content-card"><h2 class="section-title">${isZh() ? '分析完成' : 'Analysis complete'}</h2><p class="empty">${isZh() ? '這場沒有產生教練複盤，但仍可下載完整報告，或直接在下方提問。' : 'No coaching review was generated, but you can still download the full report or ask a question below.'}</p></section>`;
+  }
+
+  const toolbar = `<div class="detail-toolbar">
+    <div class="detail-summary">
+      <span class="pill ${j.status}">${escapeHtml(statusText(j.status))}</span>
+      <span class="detail-meta">${escapeHtml(meta)}</span>
+    </div>
+    <div class="links">${links.join('')}</div>
+  </div>`;
+  const errorBlock = j.error ? `<div class="err-box" role="alert">${escapeHtml(j.error)}</div>` : '';
+  const progressBlock = busy ? `<section class="content-card progress-card" aria-live="polite">
+      <span class="spinner" aria-hidden="true"></span><div><strong>${escapeHtml(statusText(j.status))}</strong>
+      <span class="logline">${escapeHtml((j.log || []).slice(-1)[0] || t('preparing'))}</span></div></section>` : '';
+  const pickerBlock = j.status === 'awaiting_player' ? picker(j) : '';
+  const chatBlock = j.files.report ? chatPanel(j) : '';
+
+  if (j.files.viewer && j.files.report) {
+    const pane = reviewPanes[j.id] || (j.status === 'done' ? 'reading' : 'visual');
+    return `${toolbar}
+      <div class="review-tabs" role="tablist" aria-label="${isZh() ? '複盤顯示內容' : 'Review view'}">
+        <button class="review-tab" type="button" role="tab" data-review-tab="visual" aria-selected="${pane === 'visual'}" onclick="setReviewPane('${j.id}', 'visual')">${isZh() ? '地圖與狀態' : 'Map and state'}</button>
+        <button class="review-tab" type="button" role="tab" data-review-tab="reading" aria-selected="${pane === 'reading'}" onclick="setReviewPane('${j.id}', 'reading')">${isZh() ? '教練複盤' : 'Coaching review'}</button>
+      </div>
+      <div class="review-workspace" id="review-workspace-${j.id}" data-mobile-pane="${pane}">
+        <aside class="review-visual" aria-label="${isZh() ? '同步戰術地圖' : 'Synchronized tactical map'}">${viewerBlock(j)}</aside>
+        <section class="review-reading" aria-label="${isZh() ? '複盤文字與對話' : 'Coaching text and conversation'}">
+          ${errorBlock}${progressBlock}${pickerBlock}${scorecard(j)}${coachingBlock}${chatBlock}
+        </section>
+      </div>`;
+  }
+
+  return `${toolbar}${errorBlock}${progressBlock}${pickerBlock}${scorecard(j)}
+    ${j.files.viewer ? viewerBlock(j) : ''}${coachingBlock}${chatBlock}`;
+}
+
+// This scorecard is computed by the pipeline, not written by the model. Keep
+// labels in the browser so the same evidence can switch languages instantly.
+const METRIC_LABELS = {
+  en: { accuracy: 'Accuracy', deaths_per_10k_souls: 'Deaths per 10k souls', kda: 'Kills + assists per death', hero_damage_per_1k_souls: 'Hero damage per 1k souls', damage_taken_ratio: 'Damage taken per damage dealt', deny_rate: 'Deny rate', objective_damage_per_1k_souls: 'Objective damage per 1k souls', jungle_share: 'Jungle share of farm' },
+  'zh-TW': { accuracy: '命中率', deaths_per_10k_souls: '每萬魂死亡數', kda: '每次死亡換到的擊殺＋助攻', hero_damage_per_1k_souls: '每千魂英雄傷害', damage_taken_ratio: '每點輸出承受的傷害', deny_rate: '否認率', objective_damage_per_1k_souls: '每千魂物件傷害', jungle_share: '野區佔打錢比例' },
+};
+const RATE_LABELS = {
+  en: { accuracy: 'Accuracy', hero_bullet_share: 'Bullets aimed at heroes', creep_efficiency: 'Available creeps secured', fight_conversion: 'Won fights converted', pickoff_share: 'Deaths from pickoffs', kill_participation: 'Team kill participation' },
+  'zh-TW': { accuracy: '命中率', hero_bullet_share: '子彈打在英雄身上', creep_efficiency: '可補的兵補到', fight_conversion: '贏下的團戰有轉化', pickoff_share: '死亡是被抓', kill_participation: '參與隊伍擊殺' },
+};
+const VERDICTS = {
+  en: { behind: ['Behind', 'bad'], ahead: ['Ahead', 'good'], level: ['Level', 'ok'], style: ['Style difference', 'neutral'], unknown: ['Unknown', 'neutral'] },
+  'zh-TW': { behind: ['落後', 'bad'], ahead: ['領先', 'good'], level: ['持平', 'ok'], style: ['打法差異', 'neutral'], unknown: ['未知', 'neutral'] },
+};
+const PHASE_NAMES = {
+  en: { laning: 'laning', 'mid game': 'mid game', 'late game': 'late game' },
+  'zh-TW': { laning: '對線期', 'mid game': '中期', 'late game': '後期' },
+};
+const metricLabel = metric => METRIC_LABELS[locale]?.[metric.key] || metric.label;
+const rateLabel = rate => RATE_LABELS[locale]?.[rate.key] || rate.label;
+const verdictOf = value => VERDICTS[locale]?.[value] || VERDICTS[locale].unknown;
+
+function metricValue(unit, value) {
+  if (value == null) return '—';
+  if (unit === '%') return `${Math.round(value * 100)}%`;
+  if (unit === 'x') return `${value.toFixed(2)}x`;
+  return Math.abs(value) < 20 ? value.toFixed(1) : Math.round(value).toLocaleString(numberLocale());
+}
+
+function findingText(finding, benchmark) {
+  const rate = finding.rate, n = finding.count;
+  const pct = rate && rate.value != null ? `${Math.round(rate.value * 100)}%` : '';
+  switch (finding.key) {
+    case 'fight_conversion':
+      return isZh() ? `贏了 ${rate.denominator} 次團戰，只有 ${rate.numerator} 次轉化成建築（${pct}）` : `Converted ${rate.numerator} of ${rate.denominator} won fights into structures (${pct})`;
+    case 'pickoffs':
+      return isZh() ? `${rate.numerator}/${rate.denominator} 次死亡是被以多打少抓掉（${pct}）` : `${rate.numerator}/${rate.denominator} deaths were outnumbered pickoffs (${pct})`;
+    case 'macro_windows':
+      return isZh() ? `${n} 個地圖窗口沒用掉（人數優勢、Mid Boss、Urn、該回防）` : `${n} macro windows missed (numbers advantage, Mid Boss, Urn, or defense)`;
+    case 'rotation_windows':
+      return isZh() ? `${n} 次隊友在別線開打、你趕得到卻沒過去` : `${n} reachable cross-lane fights without a rotation`;
+    case 'kill_windows':
+      return isZh() ? `${n} 次對手殘血在你射程內、局面也有利，沒收掉` : `${n} favorable low-health targets left in range`;
+    case 'invade_windows':
+      return isZh() ? `${n} 個對面野區在對手都不在時沒去拿` : `${n} enemy-jungle windows left unused while opponents were away`;
+    default: {
+      const metric = (benchmark?.metrics || []).find(m => m.key === finding.key);
+      if (!metric) return finding.headline;
+      const behind = metric.relative_to_top == null ? '' : (isZh()
+        ? `，落後 ${Math.abs(Math.round(metric.relative_to_top * 100))}%`
+        : `, ${Math.abs(Math.round(metric.relative_to_top * 100))}% behind`);
+      return isZh()
+        ? `${metricLabel(metric)}：你 ${metricValue(metric.unit, metric.player)}，最高段位 ${metricValue(metric.unit, metric.top)}${behind}`
+        : `${metricLabel(metric)}: you ${metricValue(metric.unit, metric.player)}, highest sampled rank ${metricValue(metric.unit, metric.top)}${behind}`;
+    }
+  }
+}
+
+function shapeText(shape) {
+  const phase = PHASE_NAMES[locale]?.[shape.turning_phase] || shape.turning_phase;
+  const record = shape.fights_by_phase?.[shape.turning_phase];
+  const outcome = shape.won == null ? (isZh() ? '這場沒有記錄勝負' : 'No result was recorded')
+    : (shape.won ? (isZh() ? '這場贏了' : 'This match was a win') : (isZh() ? '這場輸了' : 'This match was a loss'));
+  const gap = shape.final_gap
+    ? (isZh() ? `最後魂差 ${Math.abs(shape.final_gap).toLocaleString(numberLocale())}（${shape.final_gap > 0 ? '領先' : '落後'}）`
+      : `final soul gap ${Math.abs(shape.final_gap).toLocaleString(numberLocale())} (${shape.final_gap > 0 ? 'ahead' : 'behind'})`)
+    : (isZh() ? '最後魂數持平' : 'final souls were level');
+  const deepest = shape.worst_gap < 0
+    ? (isZh() ? `，${shape.worst_clock} 落後最多 ${Math.abs(shape.worst_gap).toLocaleString(numberLocale())} 魂`
+      : `, with the largest deficit of ${Math.abs(shape.worst_gap).toLocaleString(numberLocale())} at ${shape.worst_clock}`) : '';
+  const turn = phase
+    ? (isZh() ? `；${phase}是分水嶺${record ? `（決勝團戰 ${record[0]}-${record[1]}）` : ''}${deepest}`
+      : `; ${phase} was the turning point${record ? ` (decisive fights ${record[0]}-${record[1]})` : ''}${deepest}`)
+    : '';
+  return isZh() ? `${outcome}，${gap}${turn}。` : `${outcome}; ${gap}${turn}.`;
+}
+
+const FINDING_KIND_LABELS = {
+  en: { cost: 'Do less', missing: 'Missed window', mechanic: 'Rank benchmark' },
+  'zh-TW': { cost: '這場要少做', missing: '漏掉的窗口', mechanic: '最高段位實測' },
+};
+const BASIS_LABELS = {
+  en: { 'population baseline': 'Population baseline', 'post-match record': 'Post-match record', 'measured from the replay': 'Measured from replay', 'replay detector (estimate)': 'Replay detector · estimate' },
+  'zh-TW': { 'population baseline': '段位母體', 'post-match record': '賽後數據', 'measured from the replay': 'Replay 實測', 'replay detector (estimate)': '窗口判定 · 估算' },
+};
+
+function quickFindings(findings) {
+  const picked = [];
+  for (const kind of ['cost', 'missing', 'mechanic']) {
+    const finding = findings.find(row => row.kind === kind);
+    if (finding) picked.push(finding);
+  }
+  for (const finding of findings) {
+    if (picked.length >= 3) break;
+    if (!picked.includes(finding)) picked.push(finding);
+  }
+  return picked.slice(0, 3);
+}
+
+function evidenceHtml(finding, job) {
+  const evidence = (finding.evidence || []).slice(0, 4);
+  if (!evidence.length) return '';
+  const items = evidence.map(item => {
+    const text = String(item);
+    const clock = text.match(/\b\d{2}:\d{2}\b/)?.[0];
+    if (clock && job.files.viewer) {
+      return `<button type="button" class="window-link" onclick="jumpToClock('${job.id}', '${clock}')"
+        aria-label="${isZh() ? '在戰術地圖查看' : 'View on the tactical map'} ${escapeHtml(text)}">${escapeHtml(text)}</button>`;
+    }
+    return `<span class="window-text">${escapeHtml(text)}</span>`;
+  }).join('');
+  return `<div class="window-list"><span class="window-label">${isZh() ? '時間窗口' : 'Time window'}</span>${items}</div>`;
+}
+
+function accuracyOverview(data, bench) {
+  const rate = (data.rates || []).find(row => row.key === 'accuracy');
+  const metric = (bench?.metrics || []).find(row => row.key === 'accuracy');
+  if (!rate || rate.value == null) {
+    return `<div class="quick-metric">
+      <span class="quick-metric-label">${isZh() ? '你的命中率' : 'Your accuracy'}</span>
+      <strong class="quick-metric-value">${isZh() ? '未知' : 'Unknown'}</strong>
+      <span class="quick-metric-copy">${isZh() ? '這場缺少可用的射擊母數；不是 0%。' : 'The replay has no usable shot denominator; this is not 0%.'}</span>
+    </div>`;
+  }
+
+  const counts = `${Number(rate.numerator).toLocaleString(numberLocale())} / ${Number(rate.denominator).toLocaleString(numberLocale())} ${isZh() ? '發' : 'shots'}`;
+  let comparison = isZh() ? '這個英雄目前沒有足夠的最高段位樣本。' : 'This hero does not have a sufficient top-rank sample.';
+  let verdict = 'neutral';
+  if (metric?.top != null) {
+    const points = Math.round((rate.value - metric.top) * 100);
+    const direction = points < 0 ? (isZh() ? `少 ${Math.abs(points)} 個百分點` : `${Math.abs(points)} points lower`) :
+      points > 0 ? (isZh() ? `多 ${points} 個百分點` : `${points} points higher`) : (isZh() ? '相同' : 'the same');
+    comparison = isZh() ? `<strong>${escapeHtml(bench.top.label || '最高段位')} ${metricValue('%', metric.top)}</strong>，你${direction}` : `<strong>${escapeHtml(bench.top.label || 'highest sampled rank')} ${metricValue('%', metric.top)}</strong>; you are ${direction}`;
+    verdict = verdictOf(metric.verdict)[1];
+  }
+  return `<div class="quick-metric">
+    <span class="quick-metric-label">${isZh() ? '你的命中率' : 'Your accuracy'}</span>
+    <strong class="quick-metric-value">${Math.round(rate.value * 100)}%</strong>
+    <span class="quick-metric-copy">${counts}</span>
+    <div class="quick-verdict ${verdict}">${comparison}</div>
+  </div>`;
+}
+
+function largestTopGap(bench, findings) {
+  // The backend has already applied metric-specific minimum gaps. Restrict
+  // this card to those qualified findings so a tiny 0%-vs-2% rate cannot win
+  // just because its relative difference looks large.
+  const qualified = new Set((findings || []).filter(row => row.kind === 'mechanic').map(row => row.key));
+  const deficits = (bench?.metrics || [])
+    .filter(metric => qualified.has(metric.key) && metric.player != null && metric.top != null && metric.verdict === 'behind')
+    .sort((a, b) => Math.abs(b.relative_to_top || 0) - Math.abs(a.relative_to_top || 0));
+  // Accuracy already owns the card beside this one. Prefer the next useful
+  // difference so the first screen does not say the same thing twice.
+  const metric = deficits.find(row => row.key !== 'accuracy') || deficits[0];
+  if (!metric) {
+    return `<div class="quick-metric">
+      <span class="quick-metric-label">${isZh() ? '最高段位最大實測差距' : 'Largest measured top-rank gap'}</span>
+      <strong class="quick-metric-value gap-name">${isZh() ? '沒有明顯落後項' : 'No clear deficit'}</strong>
+      <span class="quick-metric-copy">${isZh() ? '僅限目前可比較的同英雄數據。' : 'Limited to comparable same-hero data.'}</span>
+    </div>`;
+  }
+  return `<div class="quick-metric">
+    <span class="quick-metric-label">${isZh() ? '最高段位最大實測差距' : 'Largest measured top-rank gap'}</span>
+    <strong class="quick-metric-value gap-name">${escapeHtml(metricLabel(metric))}</strong>
+    <span class="quick-metric-copy">${isZh() ? '你' : 'You'} <strong>${metricValue(metric.unit, metric.player)}</strong> ·
+      ${escapeHtml(bench.top.label || (isZh() ? '最高段位' : 'highest sampled rank'))} <strong>${metricValue(metric.unit, metric.top)}</strong></span>
+    <div class="quick-verdict bad">${isZh() ? '相對差距' : 'Relative gap'} ${Math.abs(Math.round((metric.relative_to_top || 0) * 100))}%</div>
+  </div>`;
+}
+
+function scorecard(j) {
+  const data = summaries[j.id];
+  if (!j.player || !j.files.summary) return '';
+  if (!data) return `<section class="content-card scorecard" id="scorecard-${j.id}" aria-busy="true">
+    <span class="empty">${isZh() ? '載入快速摘要…' : 'Loading quick summary…'}</span></section>`;
+
+  const rates = (data.rates || []).filter(r => r.value != null).map(r => `
+    <div class="stat">
+      <span class="stat-label">${escapeHtml(rateLabel(r))}</span>
+      <span class="stat-value">${Math.round(r.value * 100)}%</span>
+      <span class="stat-sub">${r.numerator.toLocaleString(numberLocale())} / ${r.denominator.toLocaleString(numberLocale())}</span>
+    </div>`).join('');
+
+  const bench = data.benchmark;
+  let table = '';
+  if (bench) {
+    const rows = bench.metrics.filter(m => m.player != null).map(m => {
+      const [word, cls] = verdictOf(m.verdict);
+      return `<tr>
+        <td>${escapeHtml(metricLabel(m))}</td>
+        <td class="num">${metricValue(m.unit, m.player)}</td>
+        <td class="num">${metricValue(m.unit, m.peer)}</td>
+        <td class="num">${metricValue(m.unit, m.top)}</td>
+        <td><span class="verdict ${cls}">${word}</span></td>
+      </tr>`;
+    }).join('');
+    table = `<div class="tablewrap"><table class="bench">
+      <thead><tr><th>${isZh() ? '指標' : 'Metric'}</th><th class="num">${isZh() ? '你' : 'You'}</th>
+      <th class="num">${isZh() ? '同段位' : 'Peer rank'}<br><span class="th-sub">${escapeHtml(bench.peer.label || '—')}
+      ${bench.peer.matches ? `· ${bench.peer.matches.toLocaleString(numberLocale())} ${isZh() ? '場' : 'matches'}` : ''}</span></th>
+      <th class="num">${isZh() ? '最高段位' : 'Highest sampled rank'}<br><span class="th-sub">${escapeHtml(bench.top.label || '—')}
+      ${bench.top.matches ? `· ${bench.top.matches.toLocaleString(numberLocale())} ${isZh() ? '場' : 'matches'}` : ''}</span></th>
+      <th>${isZh() ? '對照' : 'Read'}</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <p class="stat-note">${isZh() ? '對照欄是同一個英雄、該分段所有比賽的加總平均（不是中位數，也沒按位置分）。每列都是比率，所以比賽長短不影響比較。「打法差異」代表沒有好壞之分。' : 'Benchmarks are weighted means across all matches for this hero and rank—not medians and not role-filtered. Every row is a ratio, so match length cancels. “Style difference” has no better direction.'}</p>`;
+  }
+
+  const findings = data.findings || [];
+  const priorityFindings = quickFindings(findings);
+  const priorities = priorityFindings.map((finding, index) => `
+    <li class="priority-item">
+      <span class="priority-index" aria-hidden="true">${index + 1}</span>
+      <div>
+        <div class="priority-top">
+          <span class="priority-kind">${FINDING_KIND_LABELS[locale]?.[finding.kind] || (isZh() ? '重要差距' : 'Important gap')}</span>
+          <span class="priority-basis">${BASIS_LABELS[locale]?.[finding.basis] || finding.basis || ''}</span>
+        </div>
+        <div class="priority-copy">${escapeHtml(findingText(finding, bench))}</div>
+        ${evidenceHtml(finding, j)}
+      </div>
+    </li>`).join('');
+
+  const detailGroups = [
+    [isZh() ? '這場你做了、應該少做的' : 'What to do less', findings.filter(f => f.kind === 'cost')],
+    [isZh() ? '這場出現、但你沒抓住的窗口' : 'Windows you missed', findings.filter(f => f.kind === 'missing')],
+    [isZh() ? '最高段位母體的實測差距' : 'Measured population gaps', findings.filter(f => f.kind === 'mechanic')],
+  ].filter(([, items]) => items.length).map(([title, items]) => `
+    <div class="detail-finding-group">
+      <h3>${title}</h3>
+      <ul>${items.map(f => `<li>${escapeHtml(findingText(f, bench))}
+        ${f.evidence?.length ? `<span class="when">${escapeHtml(f.evidence.join(isZh() ? '、' : ', '))}</span>` : ''}
+      </li>`).join('')}</ul>
+    </div>`).join('');
+
+  const missing = (data.unavailable || []).length
+    ? `<p class="stat-note">${escapeHtml(data.unavailable.join(' '))}</p>` : '';
+  const topContext = bench?.top
+    ? `${escapeHtml(bench.top.label || (isZh() ? '最高段位' : 'highest sampled rank'))} · ${Number(bench.top.matches || 0).toLocaleString(numberLocale())} ${isZh() ? '場同英雄樣本' : 'same-hero matches'}`
+    : (isZh() ? '最高段位樣本不足' : 'Insufficient top-rank sample');
+
+  return `<section class="content-card scorecard" id="scorecard-${j.id}" aria-labelledby="score-title-${j.id}">
+    <div class="scorecard-head">
+      <div><p class="section-title">${isZh() ? '先看這裡' : 'Start here'}</p>
+        <h2 id="score-title-${j.id}">${escapeHtml(data.hero)} ${isZh() ? '跟最高段位差在哪裡' : 'compared with the highest sampled rank'}</h2></div>
+      <span class="rank-context">${topContext}</span>
+    </div>
+    <p class="scorecard-shape">${escapeHtml(shapeText(data.shape))}</p>
+    <div class="quick-grid">${accuracyOverview(data, bench)}${largestTopGap(bench, findings)}</div>
+    <h3 class="priority-title">${isZh() ? `這場最優先處理的 ${priorityFindings.length} 件事` : `${priorityFindings.length} priorities from this match`}</h3>
+    ${priorities ? `<ol class="priority-list">${priorities}</ol>` : `<p class="empty">${isZh() ? '這場沒有足夠資料排出明確的改善項目。' : 'There is not enough evidence to rank a clear improvement.'}</p>`}
+    ${missing}
+    <details class="score-details">
+      <summary>${isZh() ? '查看所有比率、最高段位對照與判定依據' : 'View every ratio, rank comparison, and evidence basis'}</summary>
+      <div class="score-details-body">
+        <div class="stat-row">${rates}</div>
+        ${table}
+        ${detailGroups}
+        <p class="stat-note">${isZh() ? '這些數字由 replay 與賽後紀錄直接計算，不是模型寫的。窗口判定屬估算；段位對照則是同一英雄的母體資料，兩者已分開標示。' : 'These values are computed from the replay and post-match record, not written by the model. Window detectors are estimates; rank comparisons are same-hero population data, and each is labeled separately.'}</p>
+      </div>
+    </details>
+  </section>`;
+}
+
+function viewerBlock(j) {
+  return `<section class="content-card replay-card" aria-labelledby="viewer-title-${j.id}">
+    <div class="replay-head">
+      <div><h2 class="section-title" id="viewer-title-${j.id}">${isZh() ? '戰術地圖與當時狀態' : 'Tactical map and state'}</h2>
+      <p id="viewer-meta-${j.id}">${isZh() ? '拖動時間後，位置、裝備與技能會一起更新。' : 'Move through time to synchronize positions, inventory, and abilities.'}</p></div>
+      <div class="replay-head-controls">
+        <select id="viewer-hero-${j.id}" aria-label="${isZh() ? '檢視角色的裝備與技能' : 'Inspect a hero’s inventory and abilities'}" onchange="selectViewerHero('${j.id}', this.value)"></select>
+        <details class="hero-filter" id="viewer-filter-${j.id}">
+          <summary><svg class="hero-filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>${isZh() ? '地圖人物' : 'Map heroes'}</span><span class="hero-filter-count">—</span></summary>
+          <div class="hero-filter-panel"><p class="empty">${isZh() ? '載入角色…' : 'Loading heroes…'}</p></div>
+        </details>
+      </div>
+    </div>
+    <div id="viewer-root-${j.id}" class="viewer-skeleton" aria-live="polite">
+      <span><span class="spinner" aria-hidden="true"></span> ${isZh() ? '載入互動資料…' : 'Loading interactive replay…'}</span>
+    </div>
+  </section>`;
+}
+
+function localizedHero(hero) {
+  if (!hero) return hero;
+  return isZh() ? { ...hero, ...((hero.translations || {})['zh-TW'] || {}) } : hero;
+}
+
+function localizedAsset(asset) {
+  if (!asset) return asset;
+  return isZh() ? { ...asset, ...((asset?.translations || {})['zh-TW'] || {}) } : asset;
+}
+
+function localizedEvent(event) {
+  return isZh() ? ((event.translations || {})['zh-TW'] || event.text) : event.text;
+}
+
+async function loadViewer(id) {
+  try {
+    const r = await fetch(`/api/jobs/${id}/viewer`);
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+    const data = await r.json();
+    prepareViewer(data);
+    viewers[id] = data;
+    const job = jobs.find(j => j.id === id);
+    const pickedHeroId = job?.roster?.find(hero => hero.hero === job.player)?.hero_id;
+    viewerState[id] = viewerState[id] || {
+      tick: firstInterestingTick(data), heroId: pickedHeroId ?? data.roster[0]?.hero_id ?? null,
+      assetId: null, playing: false, timer: null, playerSynced: job?.player || null,
+      visibleHeroIds: new Set([pickedHeroId ?? data.roster[0]?.hero_id].filter(value => value != null)),
+      mapLayers: { objectives: true, neutrals: true, camps: true, buffs: true, ziplines: true },
+    };
+    drawViewer(id);
+  } catch (error) {
+    const root = document.getElementById('viewer-root-' + id);
+    if (root) {
+      root.className = 'viewer-error';
+      root.textContent = (isZh() ? '互動資料無法載入：' : 'Could not load interactive replay: ') + error.message;
+    }
+  }
+}
+
+function syncViewerPerspective(job) {
+  const state = viewerState[job.id];
+  if (!state || !job.player || state.playerSynced === job.player) return;
+  const picked = job.roster?.find(hero => hero.hero === job.player);
+  if (picked) {
+    state.heroId = picked.hero_id;
+    state.assetId = null;
+    if (!(state.visibleHeroIds instanceof Set)) state.visibleHeroIds = new Set();
+    state.visibleHeroIds.add(Number(picked.hero_id));
+  }
+  state.playerSynced = job.player;
+}
+
+function prepareViewer(data) {
+  data._positions = {};
+  for (const row of data.positions || []) (data._positions[row[1]] ||= []).push(row);
+  for (const rows of Object.values(data._positions)) rows.sort((a, b) => a[0] - b[0]);
+  data._objectives = indexViewerStates(data.objective_states || [], row =>
+    row.entity_id ?? `${row.objective_type || 'objective'}:${row.x}:${row.y}`
+  );
+  data._neutrals = indexViewerStates(data.neutral_states || [], row =>
+    row.entity_id ?? `neutral:${row.x}:${row.y}`
+  );
+  data._roster = Object.fromEntries((data.roster || []).map(hero => [hero.hero_id, hero]));
+  data._assetsByClass = Object.fromEntries(Object.values(data.assets || {}).map(asset => [asset.class_name, asset]));
+}
+
+function indexViewerStates(rows, keyOf) {
+  const index = {};
+  for (const row of rows) (index[String(keyOf(row))] ||= []).push(row);
+  for (const values of Object.values(index)) values.sort((a, b) => Number(a.tick) - Number(b.tick));
+  return index;
+}
+
+function currentViewerStates(index, tick) {
+  return Object.values(index || {}).map(rows => latestRow(rows, tick)).filter(Boolean);
+}
+
+function firstInterestingTick(data) {
+  return data.timeline?.find(event => event.kind === 'kill')?.tick ?? 0;
+}
+
+function latestRow(rows, tick, tickIndex = 0) {
+  if (!rows?.length) return null;
+  let lo = 0, hi = rows.length - 1, answer = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (Number(rows[mid][tickIndex] ?? rows[mid].tick) <= tick) answer = mid, lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return answer < 0 ? null : rows[answer];
+}
+
+function safeAssetUrl(value) {
+  try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : ''; }
+  catch { return ''; }
+}
+
+function clockSeconds(data, tick) {
+  const clocks = data.clock || [];
+  if (!clocks.length) return tick / (data.match.tick_rate || 60);
+  const before = latestRow(clocks, tick);
+  const index = before ? clocks.indexOf(before) : -1;
+  if (index < 0) return 0;
+  const after = clocks[index + 1];
+  if (!after || after[0] === before[0]) return before[1];
+  const ratio = (tick - before[0]) / (after[0] - before[0]);
+  return before[1] + ratio * (after[1] - before[1]);
+}
+
+function viewerClock(data, tick) {
+  const seconds = Math.max(0, Math.round(clockSeconds(data, tick)));
+  return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function drawViewer(id) {
+  const data = viewers[id], state = viewerState[id];
+  const root = document.getElementById('viewer-root-' + id);
+  if (!data || !state || !root) return;
+  state.tick = Math.max(0, Math.min(Number(state.tick) || 0, data.match.end_tick || 0));
+  if (!(state.heroId in data._roster)) state.heroId = data.roster[0]?.hero_id ?? null;
+  if (!(state.visibleHeroIds instanceof Set)) {
+    state.visibleHeroIds = new Set((state.visibleHeroIds || [state.heroId]).map(Number));
+  }
+  state.mapLayers ||= {};
+  for (const layer of ['objectives', 'neutrals', 'camps', 'buffs', 'ziplines']) {
+    if (typeof state.mapLayers[layer] !== 'boolean') state.mapLayers[layer] = true;
+  }
+
+  const picker = document.getElementById('viewer-hero-' + id);
+  if (picker) picker.innerHTML = (data.roster || []).map(rawHero => {
+    const hero = localizedHero(rawHero);
+    return `<option value="${hero.hero_id}" ${hero.hero_id === Number(state.heroId) ? 'selected' : ''}>${escapeHtml(hero.hero)} · ${escapeHtml(hero.player_name || '—')}</option>`;
+  }
+  ).join('');
+  renderViewerHeroFilter(id, data, state);
+  const meta = document.getElementById('viewer-meta-' + id);
+  if (meta) {
+    const version = data.asset_snapshot?.client_version ? `${isZh() ? '素材' : 'Assets'} v${data.asset_snapshot.client_version}` : (isZh() ? '素材離線' : 'Assets offline');
+    meta.textContent = `${isZh() ? '位置、裝備與技能同步' : 'Synchronized position, inventory, and abilities'} · ${version} · replay build ${data.match.build ?? 'unknown'}`;
+  }
+
+  const mapUrl = safeAssetUrl(data.map?.image);
+  const landmarks = mapLandmarks(data, state);
+  const ziplines = ziplineOverlay(data, state);
+  const entities = mapEntities(data, state);
+  const markers = mapMarkers(id, data, state);
+  const visibleCount = (data.roster || []).filter(hero => state.visibleHeroIds.has(Number(hero.hero_id))).length;
+  const objectiveCount = currentViewerStates(data._objectives, state.tick).filter(row => row.health == null || Number(row.health) > 0).length;
+  const neutralCount = currentViewerStates(data._neutrals, state.tick).filter(row => Number(row.health) > 0).length;
+  const campCount = (data.map?.landmarks || []).filter(row => row.kind === 'camp').length;
+  const buffCount = (data.map?.landmarks || []).filter(row => row.kind === 'buff').length;
+  const ziplineCount = (data.map?.zipline_paths || []).length;
+  const inventory = inventoryAt(data, state.heroId, state.tick);
+  const skills = skillsAt(data, state.heroId, state.tick);
+  if (state.assetId == null || !(String(state.assetId) in (data.assets || {}))) {
+    state.assetId = inventory[0]?.id ?? skills[0]?.asset?.id ?? null;
+  }
+  const selected = localizedAsset(data.assets?.[String(state.assetId)] || null);
+  const heroSummary = heroSnapshot(data, state);
+
+  root.className = 'viewer-shell';
+  root.removeAttribute('aria-live');
+  root.innerHTML = `<div class="viewer-grid">
+    <div class="map-panel">
+      ${mapLayerControls(id, data, state)}
+      <div class="map-stage" role="group" aria-label="${escapeHtml(isZh() ? `${viewerClock(data, state.tick)} 的戰術地圖；顯示 ${visibleCount} 名角色、${state.mapLayers.objectives ? objectiveCount : 0} 個目標、${state.mapLayers.neutrals ? neutralCount : 0} 隻存活野怪、${state.mapLayers.camps ? campCount : 0} 個營地、${state.mapLayers.buffs ? buffCount : 0} 個 Buff 與 ${state.mapLayers.ziplines ? ziplineCount : 0} 條滑索` : `Tactical map at ${viewerClock(data, state.tick)}; showing ${visibleCount} heroes, ${state.mapLayers.objectives ? objectiveCount : 0} objectives, ${state.mapLayers.neutrals ? neutralCount : 0} living neutrals, ${state.mapLayers.camps ? campCount : 0} camps, ${state.mapLayers.buffs ? buffCount : 0} buffs, and ${state.mapLayers.ziplines ? ziplineCount : 0} ziplines`)}">
+        ${mapUrl ? `<img class="map-image" src="${escapeHtml(mapUrl)}" alt="${isZh() ? 'Deadlock 戰術地圖' : 'Deadlock tactical map'}" width="512" height="512">` : `<div class="map-empty">${isZh() ? '地圖素材目前離線；位置仍可依座標同步，但背景圖無法顯示。' : 'The map asset is offline. Positions still synchronize by coordinate, but the background cannot be shown.'}</div>`}
+        ${ziplines}${landmarks}${entities}${markers}
+        ${visibleCount ? '' : `<span class="map-filter-empty">${isZh() ? '目前沒有顯示任何角色' : 'No heroes are currently visible'}</span>`}
+      </div>
+      <div class="viewer-controls">
+        <button class="play-button" type="button" onclick="toggleViewer('${id}')" aria-label="${state.playing ? (isZh() ? '暫停時間軸' : 'Pause timeline') : (isZh() ? '播放時間軸' : 'Play timeline')}">
+          ${state.playing ? '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>' : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m8 5 11 7-11 7V5z"/></svg>'}
+        </button>
+        <div class="time-control"><input type="range" min="0" max="${data.match.end_tick}" step="${Math.max(1, Math.round((data.match.tick_rate || 60) / 2))}"
+          value="${state.tick}" aria-label="${isZh() ? '比賽時間' : 'Match time'}" oninput="seekViewer('${id}', this.value)"></div>
+        <output class="time-label">${viewerClock(data, state.tick)}</output>
+      </div>
+      <p class="time-hint">${isZh() ? '位置預設每秒取樣；資料中斷的角色會淡化為最後已知位置。' : 'Positions are sampled once per second by default. Heroes with missing data fade to their last known position.'}</p>
+    </div>
+    <div class="state-panel">
+      ${heroSummary}
+      ${stateSection(isZh() ? '當時裝備' : 'Inventory', inventory.length ? `${inventory.length} ${isZh() ? '件' : 'items'}` : (isZh() ? '尚無購買紀錄' : 'No purchases yet'), assetButtons(id, inventory, state))}
+      ${stateSection(isZh() ? '技能狀態' : 'Ability state', skills.length ? (isZh() ? '等級、冷卻與充能' : 'Level, cooldown, and charges') : (isZh() ? '這場沒有技能事件' : 'No ability events'), skillButtons(id, skills, state, data))}
+      <div class="state-section"><div class="state-title"><h3>${isZh() ? '說明' : 'Details'}</h3><span>${isZh() ? '點選圖示查看' : 'Select an icon'}</span></div>${assetDetail(selected)}</div>
+    </div>
+  </div>${eventStrip(id, data, state)}</div>`;
+}
+
+function mapLayerIcon(kind) {
+  if (kind === 'objectives') return '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 4h14v12H3Z" fill="#f6c65b" stroke="#0b1117" stroke-width="1.5"/><path d="M7 8h6v4H7Z" fill="#0b1117"/></svg>';
+  if (kind === 'neutrals') return '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="#c084fc" stroke="#0b1117" stroke-width="1.5"/><path d="m6 7 2 2 2-3 2 3 2-2v6H6Z" fill="#0b1117"/></svg>';
+  if (kind === 'camps') return '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2 18 16H2Z" fill="#4ade80" stroke="#0b1117" stroke-width="1.5"/><text x="10" y="14" text-anchor="middle" fill="#0b1117" font-size="8" font-weight="800">T</text></svg>';
+  if (kind === 'buffs') return '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m10 1 8 9-8 9-8-9Z" fill="#72e6a5" stroke="#0b1117" stroke-width="1.5"/><path d="M10 6v8M6 10h8" stroke="#0b1117" stroke-width="2"/></svg>';
+  return '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2 15C6 15 5 5 10 5s4 10 8 10" stroke="#56c9e2" stroke-width="3" stroke-linecap="round"/></svg>';
+}
+
+function mapLayerControls(id, data, state) {
+  const landmarks = data.map?.landmarks || [];
+  const rows = [
+    ['objectives', isZh() ? '目標' : 'Objectives', Object.keys(data._objectives || {}).length],
+    ['neutrals', isZh() ? '野怪' : 'Neutrals', Object.keys(data._neutrals || {}).length],
+    ['camps', isZh() ? '營地' : 'Camps', landmarks.filter(row => row.kind === 'camp').length],
+    ['buffs', 'Buff', landmarks.filter(row => row.kind === 'buff').length],
+    ['ziplines', isZh() ? '滑索' : 'Ziplines', (data.map?.zipline_paths || []).length],
+  ].filter(row => row[2]);
+  if (!rows.length) return '';
+  return `<div class="map-layer-controls" role="group" aria-label="${isZh() ? '地圖圖層' : 'Map layers'}"><span class="map-layer-label">${isZh() ? '地圖標示' : 'Map layers'}</span>${rows.map(([key, label, count]) =>
+    `<button type="button" class="map-layer-toggle" aria-pressed="${Boolean(state.mapLayers[key])}" onclick="toggleViewerLayer('${id}', '${key}')">${mapLayerIcon(key)}<span>${label}</span><span class="map-layer-count">${count}</span></button>`
+  ).join('')}</div>`;
+}
+
+function mapLandmarks(data, state) {
+  const size = Number(data.map?.landmark_coordinate_size) || 1024;
+  const rows = (data.map?.landmarks || []).filter(row =>
+    (row.kind === 'camp' && state.mapLayers.camps) || (row.kind === 'buff' && state.mapLayers.buffs)
+  );
+  if (!rows.length) return '';
+  return `<div class="map-landmark-layer" aria-hidden="true">${rows.map(row => {
+    const left = Math.max(0, Math.min(100, Number(row.x) / size * 100));
+    const top = Math.max(0, Math.min(100, Number(row.y) / size * 100));
+    const translated = isZh() ? row.translations?.['zh-TW'] : '';
+    const label = translated || (isZh() && row.kind === 'camp' ? `T${Number(row.tier) || 1} 野怪營地` : row.label);
+    if (row.kind === 'buff') return `<span class="map-landmark buff" title="${escapeHtml(label || 'Buff')}" style="left:${left.toFixed(3)}%;top:${top.toFixed(3)}%"><svg viewBox="0 0 24 24"><path d="m12 1 10 11-10 11L2 12Z" fill="#72e6a5" stroke="#07110c" stroke-width="1.6"/><path d="M12 7v10M7 12h10" stroke="#07110c" stroke-width="2.2"/></svg></span>`;
+    const tier = Math.max(1, Math.min(3, Number(row.tier) || 1));
+    const fill = tier === 1 ? '#9df1b2' : tier === 2 ? '#4ade80' : '#16a34a';
+    return `<span class="map-landmark camp tier-${tier}" title="${escapeHtml(label || (isZh() ? `T${tier} 野怪營地` : `T${tier} neutral camp`))}" style="left:${left.toFixed(3)}%;top:${top.toFixed(3)}%"><svg viewBox="0 0 24 24"><path d="M12 2 22 21H2Z" fill="${fill}" stroke="#07110c" stroke-width="1.6"/><text x="12" y="17" text-anchor="middle" fill="#07110c" font-size="9" font-weight="800">${tier}</text></svg></span>`;
+  }).join('')}</div>`;
+}
+
+function ziplineOverlay(data, state) {
+  if (!state.mapLayers.ziplines) return '';
+  const radius = Number(data.map?.radius) || 10752;
+  const paths = (data.map?.zipline_paths || []).map(path => {
+    const origin = path.origin || [0, 0, 0];
+    const points = (path.P0_points || []).map(point => {
+      const x = Math.max(0, Math.min(100, (Number(point[0]) + Number(origin[0] || 0) + radius) / (2 * radius) * 100));
+      const y = Math.max(0, Math.min(100, (radius - (Number(point[1]) + Number(origin[1] || 0))) / (2 * radius) * 100));
+      return `${x.toFixed(3)},${y.toFixed(3)}`;
+    }).join(' ');
+    const color = /^#[0-9a-f]{6}$/i.test(path.color || '') ? path.color : '#56c9e2';
+    return points ? `<polyline class="map-zipline-path" points="${points}" stroke="${color}" stroke-width="0.65" opacity="0.9"/>` : '';
+  }).join('');
+  return paths ? `<svg class="map-zipline-layer" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${paths}</svg>` : '';
+}
+
+function objectiveLabel(value) {
+  const raw = String(value || (isZh() ? '地圖目標' : 'Map objective'));
+  const key = raw.toLowerCase();
+  if (key.includes('mid') && key.includes('boss')) return isZh() ? '中立首領' : 'Mid Boss';
+  if (key.includes('walker')) return isZh() ? '守護者' : 'Walker';
+  if (key.includes('guardian')) return isZh() ? '守衛' : 'Guardian';
+  if (key.includes('barrack')) return isZh() ? '兵營' : 'Barracks';
+  if (key.includes('shrine')) return isZh() ? '神龕' : 'Shrine';
+  if (key.includes('patron') || key.includes('core')) return isZh() ? '主堡' : 'Patron';
+  return raw.replace(/^npc_|^citadel_|^objective_/gi, '').replaceAll('_', ' ') || (isZh() ? '地圖目標' : 'Map objective');
+}
+
+function mapEntities(data, state) {
+  const radius = Number(data.map?.radius) || 10752;
+  const firstTeam = data.roster[0]?.team_num;
+  const place = row => {
+    const left = Math.max(0, Math.min(100, (Number(row.x) + radius) / (2 * radius) * 100));
+    const top = Math.max(0, Math.min(100, (radius - Number(row.y)) / (2 * radius) * 100));
+    return `left:${left.toFixed(2)}%;top:${top.toFixed(2)}%`;
+  };
+  const objectives = state.mapLayers.objectives ? currentViewerStates(data._objectives, state.tick)
+    .filter(row => row.x != null && row.y != null && (row.health == null || Number(row.health) > 0))
+    .map(row => {
+      const label = objectiveLabel(row.objective_type);
+      const hp = row.health != null && row.max_health ? `${Number(row.health).toLocaleString(numberLocale())} / ${Number(row.max_health).toLocaleString(numberLocale())} HP` : (isZh() ? '生命值未知' : 'Health unknown');
+      const fill = row.team_num === firstTeam ? '#77c7ff' : row.team_num == null ? '#f6c65b' : '#ff8d86';
+      return `<span class="map-entity objective" tabindex="0" role="img" aria-label="${escapeHtml(`${label}, ${hp}`)}" style="${place(row)}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3Z" fill="${fill}" stroke="#07111b" stroke-width="2"/><path d="M8 9h8v6H8Z" fill="#07111b"/></svg><span class="map-tooltip"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(hp)}</span></span></span>`;
+    }).join('') : '';
+  const neutrals = state.mapLayers.neutrals ? currentViewerStates(data._neutrals, state.tick)
+    .filter(row => row.x != null && row.y != null && Number(row.health) > 0)
+    .map(row => {
+      const hp = row.max_health ? `${Number(row.health).toLocaleString(numberLocale())} / ${Number(row.max_health).toLocaleString(numberLocale())} HP` : `${Number(row.health).toLocaleString(numberLocale())} HP`;
+      const neutral = isZh() ? '野怪' : 'Neutral';
+      return `<span class="map-entity neutral" tabindex="0" role="img" aria-label="${escapeHtml(`${neutral}, ${hp}`)}" style="${place(row)}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="#c084fc" stroke="#10091a" stroke-width="2"/><path d="m7 8 3 3 2-5 2 5 3-3v8H7Z" fill="#10091a"/></svg><span class="map-tooltip"><strong>${neutral}</strong><span>${escapeHtml(hp)}</span></span></span>`;
+    }).join('') : '';
+  return objectives || neutrals ? `<div class="map-entity-layer">${objectives}${neutrals}</div>` : '';
+}
+
+function mapMarkers(id, data, state) {
+  const radius = Number(data.map?.radius) || 10752;
+  const maxAge = (data.match.tick_rate || 60) * 2.2;
+  return (data.roster || []).filter(hero => state.visibleHeroIds.has(Number(hero.hero_id))).map(rawHero => {
+    const hero = localizedHero(rawHero);
+    const row = latestRow(data._positions[hero.hero_id], state.tick);
+    if (!row) return '';
+    const stale = state.tick - row[0] > maxAge || row[5] === false;
+    const left = Math.max(0, Math.min(100, (row[2] + radius) / (2 * radius) * 100));
+    const top = Math.max(0, Math.min(100, (radius - row[3]) / (2 * radius) * 100));
+    const firstTeam = data.roster[0]?.team_num;
+    const teamClass = hero.team_num === firstTeam ? 'team-a' : 'team-b';
+    const image = safeAssetUrl(hero.image);
+    const hp = row[6] != null && row[7] ? ` · ${row[6]}/${row[7]} HP` : '';
+    const status = stale ? ` · ${isZh() ? '最後已知位置' : 'last known position'}` : '';
+    const netWorth = row[8] == null ? (isZh() ? '經濟未知' : 'economy unknown') : `${Number(row[8]).toLocaleString(numberLocale())} ${isZh() ? '靈魂' : 'souls'}`;
+    const kda = [row[9], row[10], row[11]].every(value => value != null)
+      ? `${row[9]}/${row[10]}/${row[11]}` : (isZh() ? '未知' : 'unknown');
+    const player = hero.player_name ? ` · ${hero.player_name}` : '';
+    const tooltip = `<span class="map-tooltip"><strong>${escapeHtml(hero.hero + player)}</strong><span>${isZh() ? '經濟' : 'Economy'} ${escapeHtml(netWorth)}</span><span>KDA ${escapeHtml(kda)}${escapeHtml(hp)}</span>${stale ? `<span>${isZh() ? '最後已知位置' : 'Last known position'}</span>` : ''}</span>`;
+    const face = image ? `<img src="${escapeHtml(image)}" alt="" width="32" height="32">` : `<span>${escapeHtml((hero.hero || '?').slice(0, 1))}</span>`;
+    return `<button type="button" class="map-marker ${teamClass} ${stale ? 'dead' : ''} ${hero.hero_id === Number(state.heroId) ? 'focused' : ''}"
+      style="left:${left.toFixed(2)}%;top:${top.toFixed(2)}%" onclick="selectViewerHero('${id}', '${hero.hero_id}')"
+      aria-label="${escapeHtml(`${hero.hero}, ${hero.player_name || ''}, ${isZh() ? '經濟' : 'economy'} ${netWorth}, KDA ${kda}${hp}${status}`)}"><span class="marker-face">${face}</span>${tooltip}</button>`;
+  }).join('');
+}
+
+function heroSnapshot(data, state) {
+  const hero = localizedHero(data._roster?.[state.heroId]);
+  const row = latestRow(data._positions?.[state.heroId], state.tick);
+  if (!hero || !row) return '';
+  const netWorth = row[8] == null ? '—' : Number(row[8]).toLocaleString(numberLocale());
+  const kda = [row[9], row[10], row[11]].every(value => value != null) ? `${row[9]}/${row[10]}/${row[11]}` : '—';
+  const hp = row[6] != null && row[7] ? `${Number(row[6]).toLocaleString(numberLocale())}/${Number(row[7]).toLocaleString(numberLocale())}` : '—';
+  return `<div class="state-section hero-snapshot" aria-label="${isZh() ? '目前選取角色的即時狀態' : 'Current state of the selected hero'}"><div class="hero-snapshot-copy"><strong>${escapeHtml(hero.hero)}</strong><span>${escapeHtml(hero.player_name || hero.team || '—')}</span></div><div class="hero-snapshot-stat"><strong>${escapeHtml(netWorth)}</strong><span>${isZh() ? '經濟' : 'Economy'}</span></div><div class="hero-snapshot-stat"><strong>${escapeHtml(kda)}</strong><span>KDA</span></div><div class="hero-snapshot-stat"><strong>${escapeHtml(hp)}</strong><span>HP</span></div></div>`;
+}
+
+function inventoryAt(data, heroId, tick) {
+  const held = new Map();
+  for (const event of data.inventory_events || []) {
+    if (event.tick > tick) break;
+    if (Number(event.hero_id) !== Number(heroId)) continue;
+    const change = String(event.change || '').toLowerCase();
+    const removing = /(sell|remove|removed|destroy|lost|consume)/.test(change);
+    if (removing) held.delete(String(event.ability_id));
+    else held.set(String(event.ability_id), data.assets?.[String(event.ability_id)] || { id: event.ability_id, name: `Item #${event.ability_id}`, image: '' });
+  }
+  return [...held.values()].sort((a, b) => (a.tier || 0) - (b.tier || 0) || String(a.name).localeCompare(String(b.name)));
+}
+
+function skillsAt(data, heroId, tick) {
+  const ids = new Set();
+  for (const asset of Object.values(data.assets || {})) if (asset.core_skill && (asset.heroes || []).includes(Number(heroId))) ids.add(String(asset.id));
+  const upgrades = {};
+  for (const event of data.ability_upgrades || []) {
+    if (event.tick > tick) break;
+    if (Number(event.hero_id) === Number(heroId) && data.assets?.[String(event.ability_id)]?.core_skill !== false) {
+      ids.add(String(event.ability_id));
+      upgrades[event.ability_id] = event.tier;
+    }
+  }
+  const states = {};
+  for (const event of data.ability_states || []) {
+    if (event.tick > tick) break;
+    if (Number(event.hero_id) === Number(heroId) && data.assets?.[String(event.ability_id)]?.core_skill !== false) {
+      ids.add(String(event.ability_id));
+      states[event.ability_id] = event;
+    }
+  }
+  return [...ids].map(id => ({ asset: data.assets?.[id] || { id, name: `Skill #${id}`, kind: 'ability' }, tier: upgrades[id], state: states[id] }))
+    .sort((a, b) => skillSlot(a.state?.slot) - skillSlot(b.state?.slot) || String(a.asset.name).localeCompare(String(b.asset.name)));
+}
+
+function skillSlot(value) {
+  if (Number.isFinite(Number(value))) return Number(value);
+  const match = String(value ?? '').match(/\d+/);
+  return match ? Number(match[0]) : 99;
+}
+
+function stateSection(title, meta, body) {
+  return `<div class="state-section"><div class="state-title"><h3>${escapeHtml(title)}</h3><span>${escapeHtml(meta)}</span></div><div class="asset-list">${body || `<p class="empty">${isZh() ? '沒有資料' : 'No data'}</p>`}</div></div>`;
+}
+
+function iconFor(asset) {
+  const url = safeAssetUrl(asset?.image);
+  return url ? `<img src="${escapeHtml(url)}" alt="" width="44" height="44" loading="lazy">` : `<span class="asset-icon-fallback">${escapeHtml((asset?.name || '?').slice(0, 1))}</span>`;
+}
+
+function assetButtons(id, assets, state) {
+  return assets.map(rawAsset => { const asset = localizedAsset(rawAsset); return `<button type="button" class="asset-button" aria-pressed="${String(asset.id) === String(state.assetId)}" onclick="selectViewerAsset('${id}', '${asset.id}')">
+    <span class="asset-icon">${iconFor(asset)}</span><span class="asset-name">${escapeHtml(asset.name)}</span></button>`; }).join('');
+}
+
+function skillButtons(id, skills, state, data) {
+  const now = clockSeconds(data, state.tick);
+  return skills.map(skill => {
+    skill = { ...skill, asset: localizedAsset(skill.asset) };
+    const cooldown = Math.max(0, Number(skill.state?.cooldown_end || 0) - now);
+    const charges = skill.state?.remaining_charges;
+    const used = (data.ability_uses || []).some(event => Number(event.hero_id) === Number(state.heroId) && event.ability === skill.asset.class_name && event.tick <= state.tick && state.tick - event.tick < (data.match.tick_rate || 60) * 2);
+    const meta = cooldown > 0 ? `${Math.ceil(cooldown)}s` : charges != null ? `${charges} ${isZh() ? '次' : 'charges'}` : skill.tier != null ? `T${skill.tier}` : '';
+    return `<button type="button" class="asset-button ${used ? 'skill-used' : ''}" aria-pressed="${String(skill.asset.id) === String(state.assetId)}" onclick="selectViewerAsset('${id}', '${skill.asset.id}')">
+      <span class="asset-icon">${iconFor(skill.asset)}</span><span class="asset-name">${escapeHtml(skill.asset.name)}</span>${meta ? `<span class="skill-meta">${escapeHtml(meta)}</span>` : ''}</button>`;
+  }).join('');
+}
+
+function assetDetail(asset) {
+  if (!asset) return `<p class="empty">${isZh() ? '選擇一件裝備或技能，就能在這裡查看說明。' : 'Select an item or ability to inspect its details.'}</p>`;
+  const desc = asset.description || {};
+  const main = desc.details || desc.summary || (isZh() ? '這個版本沒有提供文字說明。' : 'No description is available for this build.');
+  const upgrades = [['T1', desc.t1], ['T2', desc.t2], ['T3', desc.t3]].filter(row => row[1]);
+  const bonuses = (asset.bonuses || []).map(bonus => `<span class="bonus">${escapeHtml(bonus.label)} ${escapeHtml(bonus.value)}</span>`).join('');
+  return `<div class="asset-detail"><h4>${escapeHtml(asset.name)}${asset.cost ? ` · ${Number(asset.cost).toLocaleString(numberLocale())} ${isZh() ? '靈魂' : 'souls'}` : ''}</h4>
+    <p>${escapeHtml(main)}</p>${upgrades.map(row => `<p><strong>${row[0]}</strong> ${escapeHtml(row[1])}</p>`).join('')}${bonuses ? `<div class="bonus-list">${bonuses}</div>` : ''}</div>`;
+}
+
+function eventStrip(id, data, state) {
+  const range = (data.match.tick_rate || 60) * 150;
+  let events = (data.timeline || []).filter(event => Math.abs(event.tick - state.tick) <= range);
+  if (events.length > 12) events = events.sort((a, b) => Math.abs(a.tick - state.tick) - Math.abs(b.tick - state.tick)).slice(0, 12).sort((a, b) => a.tick - b.tick);
+  return `<div class="viewer-events"><div class="state-title"><h3>${isZh() ? '附近事件' : 'Nearby events'}</h3><span>${isZh() ? '點擊事件跳到當時' : 'Select an event to jump to it'}</span></div><div class="event-strip">${events.length ? events.map(event =>
+    `<button type="button" class="event-jump ${Math.abs(event.tick - state.tick) < (data.match.tick_rate || 60) ? 'current' : ''}" onclick="seekViewer('${id}', ${event.tick})"><span class="event-time">${escapeHtml(event.clock)}</span><span class="event-text">${escapeHtml(localizedEvent(event))}</span></button>`
+  ).join('') : `<p class="empty">${isZh() ? '這個時間附近沒有記錄事件。' : 'No events were recorded near this time.'}</p>`}</div></div>`;
+}
+
+function setReviewPane(id, pane) {
+  if (!['visual', 'reading'].includes(pane)) return;
+  reviewPanes[id] = pane;
+  const workspace = document.getElementById('review-workspace-' + id);
+  if (workspace) workspace.dataset.mobilePane = pane;
+  document.querySelectorAll(`[data-review-tab]`).forEach(button => {
+    if (button.closest('#detail') && button.dataset.reviewTab) {
+      button.setAttribute('aria-selected', String(button.dataset.reviewTab === pane));
+    }
+  });
+}
+
+function seekViewer(id, tick) { if (!viewerState[id]) return; viewerState[id].tick = Number(tick); drawViewer(id); }
+function jumpToClock(id, clock) {
+  const data = viewers[id], state = viewerState[id];
+  if (!data || !state) return;
+  const parts = String(clock).split(':').map(Number);
+  const seconds = parts.length === 2 ? parts[0] * 60 + parts[1] : 0;
+  const nearest = (data.clock || []).reduce((best, row) =>
+    !best || Math.abs(row[1] - seconds) < Math.abs(best[1] - seconds) ? row : best, null);
+  state.tick = nearest?.[0] ?? seconds * (data.match.tick_rate || 60);
+  drawViewer(id);
+  setReviewPane(id, 'visual');
+  const visualPane = document.getElementById('viewer-title-' + id)?.closest('.review-visual');
+  if (visualPane) visualPane.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function renderViewerHeroFilter(id, data, state) {
+  const filter = document.getElementById('viewer-filter-' + id);
+  if (!filter) return;
+  if (!filter.dataset.ready) {
+    const firstTeam = data.roster[0]?.team_num;
+    const teams = [];
+    for (const rawHero of data.roster || []) {
+      const hero = localizedHero(rawHero);
+      let group = teams.find(row => row.teamNum === hero.team_num);
+      if (!group) teams.push(group = { teamNum: hero.team_num, label: hero.team || (isZh() ? '隊伍' : 'Team'), heroes: [] });
+      group.heroes.push(hero);
+    }
+    const options = teams.map(group => `<div class="hero-filter-team">${escapeHtml(group.label)}</div>${group.heroes.map(hero => {
+      const image = safeAssetUrl(hero.image);
+      const teamClass = hero.team_num === firstTeam ? '' : ' team-b';
+      const face = image ? `<img src="${escapeHtml(image)}" alt="" width="30" height="30">` : escapeHtml((hero.hero || '?').slice(0, 1));
+      return `<label class="hero-filter-option"><input type="checkbox" data-viewer-hero-id="${hero.hero_id}" onchange="toggleViewerHeroVisibility('${id}', '${hero.hero_id}', this.checked)"><span class="hero-filter-face${teamClass}" aria-hidden="true">${face}</span><span class="hero-filter-copy"><strong>${escapeHtml(hero.hero)}</strong><span>${escapeHtml(hero.player_name || '—')}</span></span></label>`;
+    }).join('')}`).join('');
+    filter.innerHTML = `<summary><svg class="hero-filter-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span>${isZh() ? '地圖人物' : 'Map heroes'}</span><span class="hero-filter-count"></span></summary><div class="hero-filter-panel" role="group" aria-label="${isZh() ? '選擇要顯示在地圖上的人物' : 'Choose heroes to show on the map'}"><div class="hero-filter-actions"><button type="button" onclick="setViewerHeroVisibility('${id}', 'current')">${isZh() ? '只看目前角色' : 'Current hero only'}</button><button type="button" onclick="setViewerHeroVisibility('${id}', 'all')">${isZh() ? '全部顯示' : 'Show all'}</button></div>${options || `<p class="empty">${isZh() ? '沒有角色資料' : 'No hero data'}</p>`}</div>`;
+    filter.dataset.ready = 'true';
+  }
+  const count = (data.roster || []).filter(hero => state.visibleHeroIds.has(Number(hero.hero_id))).length;
+  const counter = filter.querySelector('.hero-filter-count');
+  if (counter) counter.textContent = `${count}/${(data.roster || []).length}`;
+  filter.querySelectorAll('[data-viewer-hero-id]').forEach(input => {
+    input.checked = state.visibleHeroIds.has(Number(input.dataset.viewerHeroId));
+  });
+}
+
+function selectViewerHero(id, heroId) {
+  const state = viewerState[id];
+  if (!state) return;
+  state.heroId = Number(heroId);
+  state.assetId = null;
+  if (!(state.visibleHeroIds instanceof Set)) state.visibleHeroIds = new Set();
+  state.visibleHeroIds.add(Number(heroId));
+  drawViewer(id);
+}
+function toggleViewerHeroVisibility(id, heroId, visible) {
+  const state = viewerState[id];
+  if (!state) return;
+  if (!(state.visibleHeroIds instanceof Set)) state.visibleHeroIds = new Set();
+  if (visible) state.visibleHeroIds.add(Number(heroId));
+  else state.visibleHeroIds.delete(Number(heroId));
+  drawViewer(id);
+}
+function setViewerHeroVisibility(id, mode) {
+  const state = viewerState[id], data = viewers[id];
+  if (!state || !data) return;
+  state.visibleHeroIds = mode === 'all'
+    ? new Set((data.roster || []).map(hero => Number(hero.hero_id)))
+    : new Set([Number(state.heroId)].filter(Number.isFinite));
+  drawViewer(id);
+}
+function toggleViewerLayer(id, layer) {
+  const state = viewerState[id];
+  if (!state || !['objectives', 'neutrals', 'camps', 'buffs', 'ziplines'].includes(layer)) return;
+  state.mapLayers ||= { objectives: true, neutrals: true, camps: true, buffs: true, ziplines: true };
+  state.mapLayers[layer] = !state.mapLayers[layer];
+  drawViewer(id);
+}
+function selectViewerAsset(id, assetId) { if (!viewerState[id]) return; viewerState[id].assetId = assetId; drawViewer(id); }
+function toggleViewer(id) {
+  const state = viewerState[id], data = viewers[id];
+  if (!state || !data) return;
+  state.playing = !state.playing;
+  if (state.timer) {
+    clearInterval(state.timer);
+    state.timer = null;
+  }
+  if (state.playing) state.timer = setInterval(() => {
+    state.tick += (data.match.tick_rate || 60) * 2;
+    if (state.tick >= data.match.end_tick) {
+      state.tick = data.match.end_tick;
+      toggleViewer(id);
+    } else drawViewer(id);
+  }, 250);
+  drawViewer(id);
+}
+function stopViewerPlayback(id) {
+  const state = viewerState[id];
+  if (!state) return;
+  state.playing = false;
+  if (state.timer) {
+    clearInterval(state.timer);
+    state.timer = null;
+  }
+}
+
+function picker(j) {
+  const byTeam = {};
+  for (const h of j.roster || []) (byTeam[h.team] = byTeam[h.team] || []).push(h);
+  const teams = Object.entries(byTeam).map(([team, heroes]) => `
+    <div class="team">
+      <h3>${escapeHtml(team)}</h3>
+      ${heroes.map(h => `
+        <button class="hero" type="button" onclick="pick('${j.id}', ${h.hero_id})">
+          <b>${escapeHtml(h.hero)}</b>
+          <span class="pname">${escapeHtml(h.player_name || '—')}</span>
+          <span class="kda">${escapeHtml(h.kda)}</span>
+        </button>`).join('')}
+    </div>`).join('');
+
+  return `
+    <section class="pick" id="pick-${j.id}">
+      <h2>${isZh() ? '你是哪一隻？' : 'Which hero did you play?'}</h2>
+      <p>${isZh() ? '選了之後才會產生複盤——沒有這一步，它只能用猜的。' : 'Choose yourself before the review is written so the coach never has to guess.'}</p>
+      ${teams ? `<div class="teams">${teams}</div>` : `<p class="empty">${isZh() ? '這場的名單讀不出來，只能做整場總覽。' : 'The roster could not be decoded; only a whole-match overview is available.'}</p>`}
+      <label class="analysis-focus" for="pick-focus-${j.id}">${isZh() ? '這次最想分析什麼？' : 'What should the coach focus on?'}
+        <span>${isZh() ? '送出前還可以補充或修改，教練會優先回答這個問題。' : 'You can revise the request before submitting. The coach will answer it first.'}</span>
+        <textarea id="pick-focus-${j.id}" rows="3" maxlength="2000" placeholder="${isZh() ? '例如：12 分鐘那波我應該站在哪裡？' : 'Example: Where should I have positioned in the fight at 12:00?'}">${escapeHtml(j.analysis_request || '')}</textarea>
+      </label>
+      <label class="opt" style="margin-top:.7rem">${isZh() ? '用哪個引擎寫：' : 'Review engine:'}
+        <select id="pick-engine-${j.id}" onchange="setEngine('${j.id}', this.value)">${engineOptions(engineOf(j))}</select>
+      </label>
+      <button class="skip" type="button" onclick="pick('${j.id}', null)">${isZh() ? '我只想看整場總覽，不指定角色' : 'Review the whole match without a player focus'}</button>
+    </section>`;
+}
+
+async function pick(id, heroId) {
+  const box = document.getElementById('pick-' + id);
+  const backend = document.getElementById('pick-engine-' + id)?.value || engines[id];
+  const analysis_request = document.getElementById('pick-focus-' + id)?.value.trim() || '';
+  if (box) {
+    box.querySelectorAll('button, select').forEach(b => { b.disabled = true; });
+    box.querySelector('p').textContent = isZh() ? '好，開始寫複盤…' : 'Writing the review…';
+  }
+  try {
+    const r = await fetch(`/api/jobs/${id}/player`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hero_id: heroId, backend, language: locale, analysis_request }),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || r.statusText);
+  } catch (e) {
+    if (box) box.querySelector('p').textContent = (isZh() ? '無法開始複盤：' : 'Could not start the review: ') + e.message;
+    return;
+  }
+  refresh(true);
+}
+
+function chatPanel(j) {
+  return `
+    <section class="content-card chat" aria-labelledby="chat-title-${j.id}">
+      <h2 class="section-title" id="chat-title-${j.id}">${isZh() ? '關於這場影片的對話' : 'Ask about this replay'}</h2>
+      <div id="turns-${j.id}">${turnsHtml(j.id)}</div>
+      <div class="ask">
+        <textarea id="ask-${j.id}" rows="3" aria-label="${isZh() ? '詢問這場影片的問題' : 'Ask a question about this replay'}" placeholder="${isZh() ? '例如：15 分那波團戰我應該怎麼打？' : 'Example: How should I have played the fight at 15:00?'}"
+          onkeydown="askKey(event, '${j.id}')" oninput="drafts['${j.id}'] = this.value">${escapeHtml(drafts[j.id] || '')}</textarea>
+        <div class="ask-side">
+          <select id="engine-${j.id}" aria-label="${isZh() ? '回答引擎' : 'Answer engine'}" onchange="setEngine('${j.id}', this.value)">${engineOptions(engineOf(j))}</select>
+          <button class="primary" type="button" onclick="send('${j.id}')" id="send-${j.id}">${isZh() ? '送出' : 'Send'}</button>
+        </div>
+      </div>
+      <p class="hint">${isZh() ? 'Enter 送出、Shift+Enter 換行。回覆通常要 10–60 秒；換引擎也可以接著問。' : 'Enter sends; Shift+Enter adds a line. Replies usually take 10–60 seconds, and you can switch engines mid-conversation.'}</p>
+    </section>`;
+}
+
+function turnsHtml(id) {
+  const turns = (chats[id] || []).map(turn => turnHtml(turn, id)).join('');
+  const pending = asking.has(id)
+    ? `<div class="turn assistant pending"><div class="who">${isZh() ? '教練' : 'Coach'}</div><div class="bubble">${isZh() ? '正在看報告…' : 'Reading the report…'}</div></div>`
+    : '';
+  return turns + pending || `<p class="empty">${isZh() ? '目前還沒有對話。你可以直接問，它手上有這場完整的報告。' : 'No conversation yet. Ask anything—the coach has the full match report.'}</p>`;
+}
+
+function turnHtml(t, id) {
+  const body = t.role === 'user' ? escapeHtml(t.text) : markdown(t.text, id);
+  const from = t.backend ? ` · ${escapeHtml(engineLabel(t.backend))}` : '';
+  const who = t.role === 'user' ? (isZh() ? '你' : 'You') : `${isZh() ? '教練' : 'Coach'}${from}${t.seconds ? ` · ${t.seconds.toFixed(0)}s` : ''}`;
+  return `<div class="turn ${t.role}"><div class="who">${who}</div><div class="bubble ${t.role === 'assistant' ? 'md' : ''}">${body}</div></div>`;
+}
+
+async function loadCoaching(id) {
+  try {
+    const r = await fetch(`/api/jobs/${id}/text/coaching`);
+    if (!r.ok) return;
+    coaching[id] = splitReview((await r.json()).text, id);
+  } catch { return; }
+  const el = document.getElementById('md-' + id);
+  if (el) el.innerHTML = reviewHtml(coaching[id]);
+}
+
+// The review is written short-first, with everything long behind this heading.
+// Splitting on it is what keeps the first screen to numbers rather than prose;
+// a review without the marker is shown whole rather than hidden.
+const REVIEW_DETAIL_MARKER = /^##\s*(?:深入細節|Deeper analysis)\s*$/m;
+
+function splitReview(text, id) {
+  const at = text.search(REVIEW_DETAIL_MARKER);
+  if (at < 0) return { lead: markdown(text, id), detail: '' };
+  const head = text.slice(0, at).replace(/\n---\s*$/, '');
+  const rest = text.slice(at).replace(REVIEW_DETAIL_MARKER, '').trimStart();
+  return { lead: markdown(head, id), detail: markdown(rest, id) };
+}
+
+function reviewHtml(parts) {
+  if (!parts) return `<p class="empty">${isZh() ? '載入複盤中…' : 'Loading review…'}</p>`;
+  if (!parts.detail) return parts.lead;
+  return `${parts.lead}
+    <details class="review-more">
+      <summary>${isZh() ? '展開完整複盤（比賽形狀、團戰、個人操作）' : 'Open the full review (match shape, fights, and mechanics)'}</summary>
+      <div class="md">${parts.detail}</div>
+    </details>`;
+}
+
+async function loadSummary(id) {
+  const job = jobs.find(j => j.id === id);
+  if (!job?.player) return;
+  let payload;
+  try {
+    const r = await fetch(`/api/jobs/${id}/text/summary`);
+    if (!r.ok) return;
+    payload = JSON.parse((await r.json()).text);
+  } catch { return; }
+  const heroId = job.roster?.find(row => row.hero === job.player)?.hero_id;
+  const row = (payload.heroes || []).find(h => h.hero_id === heroId || h.hero === job.player);
+  if (!row) return;
+  summaries[id] = row;
+  const el = document.getElementById('scorecard-' + id);
+  if (el) el.outerHTML = scorecard(job);
+}
+
+async function loadChat(id) {
+  try {
+    const r = await fetch(`/api/jobs/${id}/chat`);
+    if (!r.ok) return;
+    chats[id] = (await r.json()).messages;
+  } catch { return; }
+  drawTurns(id);
+}
+
+function drawTurns(id) {
+  const el = document.getElementById('turns-' + id);
+  if (el) el.innerHTML = turnsHtml(id);
+}
+
+function askKey(event, id) {
+  drafts[id] = event.target.value;
+  if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(id); }
+}
+
+async function send(id) {
+  const box = document.getElementById('ask-' + id);
+  const message = (box?.value || '').trim();
+  if (!message || asking.has(id)) return;
+  const backend = document.getElementById('engine-' + id)?.value || engines[id];
+  if (backend) engines[id] = backend;
+
+  box.value = '';
+  drafts[id] = '';
+  asking.add(id);
+  chats[id] = [...(chats[id] || []), { role: 'user', text: message }];
+  drawTurns(id);
+  const button = document.getElementById('send-' + id);
+  if (button) button.disabled = true;
+  scrollConversation();
+
+  try {
+    const r = await fetch(`/api/jobs/${id}/chat`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, backend }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    chats[id] = data.messages;
+  } catch (e) {
+    chats[id] = [...chats[id], { role: 'assistant', text: (isZh() ? '無法回答：' : 'Could not answer: ') + e.message }];
+  } finally {
+    asking.delete(id);
+    if (button) button.disabled = false;
+    drawTurns(id);
+    lastPayload = '';
+    if (id === activeJobId) scrollConversation();
+  }
+}
+
+function scrollConversation() {
+  requestAnimationFrame(() => mainContent.scrollTo({ top: mainContent.scrollHeight, behavior: 'smooth' }));
+}
+
+async function del(id) {
+  if (!confirm(isZh() ? '刪除這場的所有檔案？此動作無法復原。' : 'Delete every file for this replay? This cannot be undone.')) return;
+  stopViewerPlayback(id);
+  const r = await fetch('/api/jobs/' + id, { method: 'DELETE' });
+  if (!r.ok) return;
+  delete coaching[id]; delete chats[id]; delete viewers[id]; delete viewerState[id];
+  delete drafts[id]; delete engines[id]; delete reviewPanes[id]; delete scrollPositions[id];
+  jobs = jobs.filter(j => j.id !== id);
+  if (activeJobId === id) activeJobId = jobs[0]?.id || null;
+  lastPayload = '';
+  refresh(true);
+}
+
+function formatDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return escapeHtml(String(value || '').slice(0, 16).replace('T', ' '));
+  return new Intl.DateTimeFormat(numberLocale(), { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Just enough Markdown for what the engines write back. Everything is escaped
+// first, so the model's output can never inject markup into this page.
+function markdown(src, viewerId = null) {
+  const lines = escapeHtml(src).split('\n');
+  const out = [];
+  let list = null, para = [];
+  const formatted = value => inline(value, viewerId);
+  const flushPara = () => { if (para.length) { out.push(`<p>${formatted(para.join(' '))}</p>`); para = []; } };
+  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+  const openList = tag => { if (list !== tag) { flushList(); out.push(`<${tag}>`); list = tag; } };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i], t = line.trim();
+    if (!t) { flushPara(); flushList(); continue; }
+    const head = t.match(/^(#{1,6})\s+(.*)$/);
+    if (head) {
+      flushPara(); flushList();
+      const level = Math.min(head[1].length + 2, 4);
+      out.push(`<h${level}>${formatted(head[2])}</h${level}>`);
+      continue;
+    }
+    if (/^(---+|\*\*\*+)$/.test(t)) { flushPara(); flushList(); out.push('<hr>'); continue; }
+    if (t.startsWith('|') && /^\|[\s:|-]+\|$/.test((lines[i + 1] || '').trim())) {
+      flushPara(); flushList();
+      const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+      const cols = cells(t), rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim().startsWith('|')) rows.push(cells(lines[i++]));
+      i--;
+      out.push('<div class="tablewrap"><table><thead><tr>' + cols.map(c => `<th>${formatted(c)}</th>`).join('') + '</tr></thead><tbody>' + rows.map(r => '<tr>' + r.map(c => `<td>${formatted(c)}</td>`).join('') + '</tr>').join('') + '</tbody></table></div>');
+      continue;
+    }
+    const ul = t.match(/^[-*+]\s+(.*)$/);
+    if (ul) { flushPara(); openList('ul'); out.push(`<li>${formatted(ul[1])}</li>`); continue; }
+    const ol = t.match(/^\d+[.)]\s+(.*)$/);
+    if (ol) { flushPara(); openList('ol'); out.push(`<li>${formatted(ol[1])}</li>`); continue; }
+    const quote = t.match(/^&gt;\s?(.*)$/);
+    if (quote) { flushPara(); flushList(); out.push(`<blockquote>${formatted(quote[1])}</blockquote>`); continue; }
+    flushList(); para.push(t);
+  }
+  flushPara(); flushList();
+  return out.join('\n');
+}
+
+function inline(s, viewerId = null) {
+  const clocks = [];
+  if (viewerId) s = s.replace(/(^|[^\d:])([0-5]?\d:[0-5]\d)(?![:\d])/g, (match, lead, clock) => {
+    const index = clocks.push(clock) - 1;
+    return `${lead}\uE000${index}\uE001`;
+  });
+  let rendered = s.replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  if (viewerId) rendered = rendered.replace(/\uE000(\d+)\uE001/g, (_, index) => {
+    const clock = clocks[Number(index)];
+    return `<button type="button" class="time-link" onclick="jumpToClock('${viewerId}', '${clock}')" title="${isZh() ? '在戰術地圖查看' : 'View on the tactical map'} ${clock}">${clock}</button>`;
+  });
+  return rendered;
+}
+
+function openSidebar() {
+  document.body.classList.add('sidebar-open');
+  $('#sidebar').inert = false;
+  $('#menu-button').setAttribute('aria-expanded', 'true');
+  $('#menu-button').setAttribute('aria-label', t('closeSidebar'));
+  requestAnimationFrame(() => $('.new-analysis').focus());
+}
+function closeSidebar(returnFocus) {
+  document.body.classList.remove('sidebar-open');
+  $('#menu-button').setAttribute('aria-expanded', 'false');
+  $('#menu-button').setAttribute('aria-label', t('openSidebar'));
+  syncSidebarA11y();
+  if (returnFocus) $('#menu-button').focus();
+}
+const sidebarMedia = window.matchMedia('(max-width: 860px)');
+function syncSidebarA11y() {
+  $('#sidebar').inert = sidebarMedia.matches && !document.body.classList.contains('sidebar-open');
+}
+sidebarMedia.addEventListener('change', syncSidebarA11y);
+$('#menu-button').onclick = () => document.body.classList.contains('sidebar-open') ? closeSidebar() : openSidebar();
+$('#scrim').onclick = () => closeSidebar(true);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('sidebar-open')) closeSidebar(true); });
+
+applyLocale();
+syncSidebarA11y();
+loadConfig();
+refresh();
+setInterval(refresh, 2500);
+</script>
+</body>
+</html>
