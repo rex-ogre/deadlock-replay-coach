@@ -3,6 +3,9 @@
 Turn a Deadlock `.dem` replay into an AI-readable coaching report, structured
 match data, and a synchronized tactical replay viewer.
 
+> **Disclaimer:** I am just a regular player. This project does not guarantee
+> that using it will make you a professional player.
+
 The decoder reduces millions of per-tick values into evidence an AI coach can
 reason about: fight outcomes, objective conversion, economy, isolation deaths,
 movement, mechanics, and player-specific missed opportunities.
