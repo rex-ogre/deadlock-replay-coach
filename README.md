@@ -6,9 +6,12 @@ match data, and a synchronized tactical replay viewer.
 > **Disclaimer:** I am just a regular player. This project does not guarantee
 > that using it will make you a professional player.
 
-## Web interface
+## Example analysis
 
-![Upload a Deadlock replay for analysis](docs/images/upload-replay.png)
+This synthetic, anonymized example shows the completed tactical map, hero
+positions, rank benchmark, and evidence-backed priorities without player names.
+
+![An anonymized completed Deadlock replay analysis with a tactical map and six hero markers](docs/images/analysis-example.webp)
 
 The decoder reduces millions of per-tick values into evidence an AI coach can
 reason about: fight outcomes, objective conversion, economy, isolation deaths,
