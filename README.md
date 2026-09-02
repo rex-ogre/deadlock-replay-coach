@@ -6,6 +6,10 @@ match data, and a synchronized tactical replay viewer.
 > **Disclaimer:** I am just a regular player. This project does not guarantee
 > that using it will make you a professional player.
 
+## Web interface
+
+![Upload a Deadlock replay for analysis](docs/images/upload-replay.png)
+
 The decoder reduces millions of per-tick values into evidence an AI coach can
 reason about: fight outcomes, objective conversion, economy, isolation deaths,
 movement, mechanics, and player-specific missed opportunities.
